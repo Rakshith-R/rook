@@ -85,6 +85,18 @@ func SetParams(clientset kubernetes.Interface) error {
 		return errors.Wrap(err, "unable to parse value for 'ROOK_CSI_ENABLE_GRPC_METRICS'")
 	}
 
+	//if not set, existing host network setting is preserved on upgrade or defaults to false in a new cluster
+	csiEnableCSIHostNetwork, err := k8sutil.GetOperatorSetting(clientset, controllerutil.OperatorSettingConfigMapName, "CSI_ENABLE_HOST_NETWORK", "")
+	if err != nil {
+		return errors.Wrap(err, "unable to determine if CSI Host Network is enabled")
+	}
+	_, err = strconv.ParseBool(csiEnableCSIHostNetwork)
+	if csiEnableCSIHostNetwork != "" && err != nil {
+		return errors.Wrap(err, "unable to parse value for 'CSI_ENABLE_HOST_NETWORK'")
+	} else {
+		CSIParam.EnableCSIHostNetwork = csiEnableCSIHostNetwork
+	}
+
 	CSIParam.CSIPluginImage, err = k8sutil.GetOperatorSetting(clientset, controllerutil.OperatorSettingConfigMapName, "ROOK_CSI_CEPH_IMAGE", DefaultCSIPluginImage)
 	if err != nil {
 		return errors.Wrap(err, "unable to configure CSI plugin image")

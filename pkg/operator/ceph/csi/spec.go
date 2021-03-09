@@ -54,6 +54,7 @@ type Param struct {
 	RBDPluginUpdateStrategy      string
 	PluginPriorityClassName      string
 	ProvisionerPriorityClassName string
+	EnableCSIHostNetwork         string
 	EnableOMAPGenerator          bool
 	EnableRBDSnapshotter         bool
 	EnableCephFSSnapshotter      bool

@@ -19,7 +19,9 @@ spec:
         {{ end }}
     spec:
       serviceAccount: rook-csi-cephfs-plugin-sa
-      hostNetwork: true
+      {{ if .EnableCSIHostNetwork }}
+      hostNetwork: {{ .EnableCSIHostNetwork }}
+      {{ end }}
       {{ if .PluginPriorityClassName }}
       priorityClassName: {{ .PluginPriorityClassName }}
       {{ end }}
