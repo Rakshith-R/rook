@@ -78,3 +78,7 @@ It follows controller pattern and provides extended APIs for storage disaster re
 To enable volume replication:
 - For Helm deployments see the [helm settings](helm-operator.md#configuration).
 - For non-Helm deployments set `CSI_ENABLE_VOLUME_REPLICATION: "true"` in the operator.yaml
+
+## Encryption for RBD volumes
+
+Ceph CSI driver supports encryption for RBD volumes using LUKS encryption. For more details, see [encryption for RBD volumes](https://github.com/ceph/ceph-csi/blob/devel/docs/deploy-rbd.md#encryption-for-rbd-volumes)
