@@ -974,6 +974,8 @@ All topology labels are optional.
 
 > **HINT** When setting the node labels prior to `CephCluster` creation, these settings take immediate effect. However, applying this to an already deployed `CephCluster` requires removing each node from the cluster first and then re-adding it with new configuration to take effect. Do this node by node to keep your data safe! Check the result with `ceph osd tree` from the [Rook Toolbox](ceph-toolbox.md). The OSD tree should display the hierarchy for the nodes that already have been re-added.
 
+> **Note** To leverage AZ read affinity based on topology, `mapOptions: "read_from_replica=localize,crush_location=zone:zone1|rack:rack1"` can be added as storageclass parameter. For all the PersistentVolumeClaims created from this storageclass, whenever a read is issued on a replicated pool, the most local serving OSD is chosen. For more information, refer options `crush_location` and `read_from_replica=localize` mentioned [here](https://docs.ceph.com/en/latest/man/8/rbd/#kernel-rbd-krbd-options).
+
 To utilize the `failureDomain` based on the node labels, specify the corresponding option in the [CephBlockPool](ceph-pool-crd.md)
 
 ```yaml
