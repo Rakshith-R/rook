@@ -37,6 +37,7 @@ import (
 
 type Param struct {
 	CSIPluginImage                 string
+	NFSPluginImage                 string
 	RegistrarImage                 string
 	ProvisionerImage               string
 	AttacherImage                  string
@@ -47,6 +48,7 @@ type Param struct {
 	KubeletDirPath                 string
 	ForceCephFSKernelClient        string
 	CephFSPluginUpdateStrategy     string
+	CephNFSPluginUpdateStrategy    string
 	RBDPluginUpdateStrategy        string
 	PluginPriorityClassName        string
 	ProvisionerPriorityClassName   string
@@ -68,6 +70,7 @@ type Param struct {
 	RBDLivenessMetricsPort         uint16
 	ProvisionerReplicas            int32
 	CSICephFSPodLabels             map[string]string
+	CSICephNFSPodLabels            map[string]string
 	CSIRBDPodLabels                map[string]string
 }
 
@@ -82,13 +85,15 @@ var (
 
 	EnableRBD                 = false
 	EnableCephFS              = false
+	EnableCephNFS             = false
 	EnableCSIGRPCMetrics      = false
 	AllowUnsupported          = false
 	CustomCSICephConfigExists = false
 
 	//driver names
-	CephFSDriverName string
-	RBDDriverName    string
+	CephFSDriverName  string
+	CephNFSDriverName string
+	RBDDriverName     string
 
 	// configuration map for csi
 	ConfigName = "rook-ceph-csi-config"
@@ -104,6 +109,7 @@ var (
 var (
 	// image names
 	DefaultCSIPluginImage         = "quay.io/cephcsi/cephcsi:v3.5.1"
+	DefaultNFSPluginImage         = "mcr.microsoft.com/k8s/csi/nfs-csi:v3.1.0"
 	DefaultRegistrarImage         = "k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.5.0"
 	DefaultProvisionerImage       = "k8s.gcr.io/sig-storage/csi-provisioner:v3.1.0"
 	DefaultAttacherImage          = "k8s.gcr.io/sig-storage/csi-attacher:v3.4.0"
@@ -127,6 +133,10 @@ var (
 	CephFSProvisionerDepTemplatePath string
 	//go:embed template/cephfs/csi-cephfsplugin-svc.yaml
 	CephFSPluginServiceTemplatePath string
+
+	// Local package template path for CephNFS
+	//go:embed template/cephnfs/csi-cephnfsplugin.yaml
+	CephNFSPluginTemplatePath string
 )
 
 const (
@@ -147,6 +157,10 @@ const (
 	cephFSPluginTolerationsEnv       = "CSI_CEPHFS_PLUGIN_TOLERATIONS"
 	cephFSPluginNodeAffinityEnv      = "CSI_CEPHFS_PLUGIN_NODE_AFFINITY"
 
+	// CephFS tolerations and node affinity
+	cephNFSPluginTolerationsEnv  = "CSI_CEPHNFS_PLUGIN_TOLERATIONS"
+	cephNFSPluginNodeAffinityEnv = "CSI_CEPHNFS_PLUGIN_NODE_AFFINITY"
+
 	// RBD tolerations and node affinity
 	rbdProvisionerTolerationsEnv  = "CSI_RBD_PROVISIONER_TOLERATIONS"
 	rbdProvisionerNodeAffinityEnv = "CSI_RBD_PROVISIONER_NODE_AFFINITY"
@@ -159,6 +173,8 @@ const (
 
 	cephFSProvisionerResource = "CSI_CEPHFS_PROVISIONER_RESOURCE"
 	cephFSPluginResource      = "CSI_CEPHFS_PLUGIN_RESOURCE"
+
+	cephNFSPluginResource = "CSI_CEPHNFS_PLUGIN_RESOURCE"
 
 	// kubelet directory path
 	DefaultKubeletDirPath = "/var/lib/kubelet"
@@ -182,16 +198,18 @@ const (
 	onDelete      = "OnDelete"
 
 	// driver daemonset names
-	csiRBDPlugin    = "csi-rbdplugin"
-	csiCephFSPlugin = "csi-cephfsplugin"
+	csiRBDPlugin     = "csi-rbdplugin"
+	csiCephFSPlugin  = "csi-cephfsplugin"
+	csiCephNFSPlugin = "csi-cephnfsplugin"
 
 	// driver deployment names
-	csiRBDProvisioner    = "csi-rbdplugin-provisioner"
-	csiCephFSProvisioner = "csi-cephfsplugin-provisioner"
+	csiRBDProvisioner     = "csi-rbdplugin-provisioner"
+	csiCephFSProvisioner  = "csi-cephfsplugin-provisioner"
+	csiCephNFSProvisioner = "csi-cephnfsplugin-provisioner"
 )
 
 func CSIEnabled() bool {
-	return EnableRBD || EnableCephFS
+	return EnableRBD || EnableCephFS || EnableCephNFS
 }
 
 func validateCSIParam() error {
@@ -214,7 +232,7 @@ func validateCSIParam() error {
 func (r *ReconcileCSI) startDrivers(ver *version.Info, ownerInfo *k8sutil.OwnerInfo, v *CephCSIVersion) error {
 	var (
 		err                                                   error
-		rbdPlugin, cephfsPlugin                               *apps.DaemonSet
+		rbdPlugin, cephfsPlugin, cephnfsPlugin                *apps.DaemonSet
 		rbdProvisionerDeployment, cephfsProvisionerDeployment *apps.Deployment
 		rbdService, cephfsService                             *corev1.Service
 	)
@@ -228,6 +246,7 @@ func (r *ReconcileCSI) startDrivers(ver *version.Info, ownerInfo *k8sutil.OwnerI
 
 	CephFSDriverName = tp.DriverNamePrefix + "cephfs.csi.ceph.com"
 	RBDDriverName = tp.DriverNamePrefix + "rbd.csi.ceph.com"
+	CephNFSDriverName = tp.DriverNamePrefix + "nfs.csi.ceph.com"
 
 	csiDriverobj = beta1CsiDriver{}
 	if ver.Major > KubeMinMajor || ver.Major == KubeMinMajor && ver.Minor >= kubeMinVerForV1csiDriver {
@@ -324,6 +343,12 @@ func (r *ReconcileCSI) startDrivers(ver *version.Info, ownerInfo *k8sutil.OwnerI
 		tp.CephFSPluginUpdateStrategy = rollingUpdate
 	}
 
+	if strings.EqualFold(k8sutil.GetValue(r.opConfig.Parameters, "CSI_CEPHNFS_PLUGIN_UPDATE_STRATEGY", rollingUpdate), onDelete) {
+		tp.CephNFSPluginUpdateStrategy = onDelete
+	} else {
+		tp.CephNFSPluginUpdateStrategy = rollingUpdate
+	}
+
 	if strings.EqualFold(k8sutil.GetValue(r.opConfig.Parameters, "CSI_RBD_PLUGIN_UPDATE_STRATEGY", rollingUpdate), onDelete) {
 		tp.RBDPluginUpdateStrategy = onDelete
 	} else {
@@ -403,6 +428,13 @@ func (r *ReconcileCSI) startDrivers(ver *version.Info, ownerInfo *k8sutil.OwnerI
 			return errors.Wrap(err, "failed to load cephfs plugin service template")
 		}
 		cephfsService.Namespace = r.opConfig.OperatorNamespace
+	}
+
+	if EnableCephNFS {
+		cephnfsPlugin, err = templateToDaemonSet("cephnfsplugin", CephNFSPluginTemplatePath, tp)
+		if err != nil {
+			return errors.Wrap(err, "failed to load CephNFS plugin template")
+		}
 	}
 
 	// get common provisioner tolerations and node affinity
@@ -547,16 +579,48 @@ func (r *ReconcileCSI) startDrivers(ver *version.Info, ownerInfo *k8sutil.OwnerI
 		}
 	}
 
+	if cephnfsPlugin != nil {
+		// get CephNFS plugin tolerations and node affinity, defaults to common tolerations and node affinity if not specified
+		cephNFSPluginTolerations := getToleration(r.opConfig.Parameters, cephNFSPluginTolerationsEnv, pluginTolerations)
+		cephNFSPluginNodeAffinity := getNodeAffinity(r.opConfig.Parameters, cephNFSPluginNodeAffinityEnv, pluginNodeAffinity)
+		// apply CephNFS plugin tolerations and node affinity
+		applyToPodSpec(&cephnfsPlugin.Spec.Template.Spec, cephNFSPluginNodeAffinity, cephNFSPluginTolerations)
+		// apply resource request and limit to cephnfs plugin containers
+		applyResourcesToContainers(r.opConfig.Parameters, cephNFSPluginResource, &cephnfsPlugin.Spec.Template.Spec)
+		err = ownerInfo.SetControllerReference(cephnfsPlugin)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set owner reference to cephnfs plugin daemonset %q", cephnfsPlugin.Name)
+		}
+		multusApplied, err := r.applyCephClusterNetworkConfig(r.opManagerContext, &cephnfsPlugin.Spec.Template.ObjectMeta)
+		if err != nil {
+			return errors.Wrapf(err, "failed to apply network config to cephnfs plugin daemonset %q", cephnfsPlugin.Name)
+		}
+		if multusApplied {
+			cephnfsPlugin.Spec.Template.Spec.HostNetwork = false
+		}
+		err = k8sutil.CreateDaemonSet(r.opManagerContext, csiCephNFSPlugin, r.opConfig.OperatorNamespace, r.context.Clientset, cephnfsPlugin)
+		if err != nil {
+			return errors.Wrapf(err, "failed to start cephnfs plugin daemonset %q", cephnfsPlugin.Name)
+		}
+		k8sutil.AddRookVersionLabelToDaemonSet(cephnfsPlugin)
+	}
+
 	if EnableRBD {
-		err = csiDriverobj.createCSIDriverInfo(r.opManagerContext, r.context.Clientset, RBDDriverName, k8sutil.GetValue(r.opConfig.Parameters, "CSI_RBD_FSGROUPPOLICY", string(k8scsi.ReadWriteOnceWithFSTypeFSGroupPolicy)))
+		err = csiDriverobj.createCSIDriverInfo(r.opManagerContext, r.context.Clientset, RBDDriverName, k8sutil.GetValue(r.opConfig.Parameters, "CSI_RBD_FSGROUPPOLICY", string(k8scsi.ReadWriteOnceWithFSTypeFSGroupPolicy)), true)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create CSI driver object for %q", RBDDriverName)
 		}
 	}
 	if EnableCephFS {
-		err = csiDriverobj.createCSIDriverInfo(r.opManagerContext, r.context.Clientset, CephFSDriverName, k8sutil.GetValue(r.opConfig.Parameters, "CSI_CEPHFS_FSGROUPPOLICY", string(k8scsi.ReadWriteOnceWithFSTypeFSGroupPolicy)))
+		err = csiDriverobj.createCSIDriverInfo(r.opManagerContext, r.context.Clientset, CephFSDriverName, k8sutil.GetValue(r.opConfig.Parameters, "CSI_CEPHFS_FSGROUPPOLICY", string(k8scsi.ReadWriteOnceWithFSTypeFSGroupPolicy)), true)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create CSI driver object for %q", CephFSDriverName)
+		}
+	}
+	if EnableCephNFS {
+		err = csiDriverobj.createCSIDriverInfo(r.opManagerContext, r.context.Clientset, CephNFSDriverName, k8sutil.GetValue(r.opConfig.Parameters, "CSI_CEPHNFS_FSGROUPPOLICY", string(k8scsi.ReadWriteOnceWithFSTypeFSGroupPolicy)), false)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create CSI driver object for %q", CephNFSDriverName)
 		}
 	}
 
@@ -566,6 +630,7 @@ func (r *ReconcileCSI) startDrivers(ver *version.Info, ownerInfo *k8sutil.OwnerI
 func (r *ReconcileCSI) stopDrivers(ver *version.Info) error {
 	RBDDriverName = fmt.Sprintf("%s.rbd.csi.ceph.com", r.opConfig.OperatorNamespace)
 	CephFSDriverName = fmt.Sprintf("%s.cephfs.csi.ceph.com", r.opConfig.OperatorNamespace)
+	CephNFSDriverName = fmt.Sprintf("%s.nfs.csi.ceph.com", r.opConfig.OperatorNamespace)
 
 	if !EnableRBD {
 		logger.Info("CSI Ceph RBD driver disabled")
@@ -583,6 +648,15 @@ func (r *ReconcileCSI) stopDrivers(ver *version.Info) error {
 			return errors.Wrap(err, "failed to remove CSI CephFS driver")
 		}
 		logger.Info("successfully removed CSI CephFS driver")
+	}
+
+	if !EnableCephNFS {
+		logger.Info("CSI CephNFS driver disabled")
+		err := r.deleteCSIDriverResources(ver, csiCephNFSPlugin, csiCephNFSProvisioner, "csi-cephnfsplugin-metrics", CephNFSDriverName)
+		if err != nil {
+			return errors.Wrap(err, "failed to remove CSI CephNFS driver")
+		}
+		logger.Info("successfully removed CSI CephNFS driver")
 	}
 
 	return nil
