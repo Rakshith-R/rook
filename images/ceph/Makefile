@@ -149,6 +149,8 @@ list-image: ## Create a list of images for offline installation
 		cut -d: -f2- | tee $(IMAGE_TMP)
 	awk '/quay.io/ || /k8s.gcr.io/ {print $3}' ../../pkg/operator/ceph/csi/spec.go | \
 		cut -d= -f2- | tr -d '"' | tee -a $(IMAGE_TMP)
+	awk '/quay.io/ || /mcr.microsoft.com/ {print $3}' ../../pkg/operator/ceph/csi/spec.go | \
+		cut -d= -f2- | tr -d '"' | tee -a $(IMAGE_TMP)
 	rm -f $(MANIFESTS_DIR)/images.txt
 	cat $(IMAGE_TMP) | sort -h | uniq | tee $(MANIFESTS_DIR)/images.txt
 	rm -f $(IMAGE_TMP)
