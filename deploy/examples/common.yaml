@@ -80,6 +80,36 @@ rules:
     resources: ["volumesnapshots/status"]
     verbs: ["update", "patch"]
 ---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: nfs-external-provisioner-runner
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["csinodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -590,6 +620,19 @@ subjects:
 roleRef:
   kind: ClusterRole
   name: cephfs-external-provisioner-runner
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: nfs-csi-provisioner-role
+subjects:
+  - kind: ServiceAccount
+    name: rook-csi-nfs-provisioner-sa
+    namespace: rook-ceph # namespace:operator
+roleRef:
+  kind: ClusterRole
+  name: nfs-external-provisioner-runner
   apiGroup: rbac.authorization.k8s.io
 ---
 kind: ClusterRoleBinding
@@ -1339,6 +1382,15 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: rook-csi-nfs-plugin-sa
+  namespace: rook-ceph # namespace:operator
+# imagePullSecrets:
+#   - name: my-registry-secret
+---
+# Service account for the NFS CSI provisioner
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rook-csi-nfs-provisioner-sa
   namespace: rook-ceph # namespace:operator
 # imagePullSecrets:
 #   - name: my-registry-secret
