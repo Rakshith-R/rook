@@ -79,7 +79,7 @@ metadata:
 rules:
   - apiGroups: ["csiaddons.openshift.io"]
     resources: ["csiaddonsnodes"]
-    verbs: ["create"]
+    verbs: ["create", "delete"]
 ---
 {{- end }}
 kind: Role
@@ -100,6 +100,6 @@ rules:
   {{- if and .Values.csi.csiAddons .Values.csi.csiAddons.enabled }}
   - apiGroups: ["csiaddons.openshift.io"]
     resources: ["csiaddonsnodes"]
-    verbs: ["create"]
+    verbs: ["create", "delete"]
   {{- end }}
 {{- end }}

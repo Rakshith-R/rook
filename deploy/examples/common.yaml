@@ -881,7 +881,7 @@ metadata:
 rules:
   - apiGroups: ["csiaddons.openshift.io"]
     resources: ["csiaddonsnodes"]
-    verbs: ["create"]
+    verbs: ["create", "delete"]
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
@@ -900,7 +900,7 @@ rules:
     verbs: ["get", "watch", "list", "delete", "update", "create"]
   - apiGroups: ["csiaddons.openshift.io"]
     resources: ["csiaddonsnodes"]
-    verbs: ["create"]
+    verbs: ["create", "delete"]
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
