@@ -266,6 +266,14 @@ type KeyManagementServiceSpec struct {
 	// TokenSecretName is the kubernetes secret containing the KMS token
 	// +optional
 	TokenSecretName string `json:"tokenSecretName,omitempty"`
+	// EnableKeyRotation enables encryption key rotation.
+	// +optional
+	EnableKeyRotation bool `json:"enableKeyRotation,omitempty"`
+	// Schedule is the cron format schedule for key rotation.
+	// Default value is "@weekly".
+	// +optional
+	// +kubebuilder:default="@weeky"
+	Schedule string `json:"schedule,omitempty"`
 }
 
 // CephVersionSpec represents the settings for the Ceph version that Rook is orchestrating.

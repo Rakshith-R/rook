@@ -2512,6 +2512,13 @@ spec:
                           nullable: true
                           type: object
                           x-kubernetes-preserve-unknown-fields: true
+                        enableKeyRotation:
+                          description: EnableKeyRotation enables encryption key rotation.
+                          type: boolean
+                        schedule:
+                          default: '@weeky'
+                          description: Schedule is the cron format schedule for key rotation.
+                          type: string
                         tokenSecretName:
                           description: TokenSecretName is the kubernetes secret containing the KMS token
                           type: string
@@ -12608,6 +12615,13 @@ spec:
                           nullable: true
                           type: object
                           x-kubernetes-preserve-unknown-fields: true
+                        enableKeyRotation:
+                          description: EnableKeyRotation enables encryption key rotation.
+                          type: boolean
+                        schedule:
+                          default: '@weeky'
+                          description: Schedule is the cron format schedule for key rotation.
+                          type: string
                         tokenSecretName:
                           description: TokenSecretName is the kubernetes secret containing the KMS token
                           type: string
@@ -12623,6 +12637,13 @@ spec:
                           nullable: true
                           type: object
                           x-kubernetes-preserve-unknown-fields: true
+                        enableKeyRotation:
+                          description: EnableKeyRotation enables encryption key rotation.
+                          type: boolean
+                        schedule:
+                          default: '@weeky'
+                          description: Schedule is the cron format schedule for key rotation.
+                          type: string
                         tokenSecretName:
                           description: TokenSecretName is the kubernetes secret containing the KMS token
                           type: string
