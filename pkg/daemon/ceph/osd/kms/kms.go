@@ -195,6 +195,20 @@ func (c *Config) GetSecret(secretName string) (string, error) {
 	return value, nil
 }
 
+// UpdateSecret updates the encrypted key in a KMS
+func (c *Config) UpdateSecret(secretName, secretValue string) error {
+	// If Kubernetes Secret KMS is selected (default)
+	if c.IsK8s() {
+		// Update the secret in Kubernetes Secrets
+		err := c.updateSecretInKubernetes(secretName, secretValue)
+		if err != nil {
+			return errors.Wrap(err, "failed to store secret in kubernetes secret")
+		}
+	}
+
+	return nil
+}
+
 // DeleteSecret deletes an encrypted key from a KMS
 func (c *Config) DeleteSecret(secretName string) error {
 	if c.IsVault() {

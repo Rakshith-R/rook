@@ -54,6 +54,22 @@ func (c *Config) storeSecretInKubernetes(pvcName, key string) error {
 	return nil
 }
 
+// updateSecretInKubernetes updates the dmcrypt key in a Kubernetes Secret
+func (c *Config) updateSecretInKubernetes(pvcName, key string) error {
+	s, err := generateOSDEncryptedKeySecret(pvcName, key, c.ClusterInfo)
+	if err != nil {
+		return err
+	}
+
+	// Create the Kubernetes Secret
+	_, err = c.context.Clientset.CoreV1().Secrets(c.ClusterInfo.Namespace).Update(c.ClusterInfo.Context, s, metav1.UpdateOptions{})
+	if err != nil && !kerrors.IsAlreadyExists(err) {
+		return errors.Wrapf(err, "failed to save ceph osd encryption key as a secret for pvc %q", pvcName)
+	}
+
+	return nil
+}
+
 // getKubernetesSecret returns key value from secret.
 func (c *Config) getKubernetesSecret(pvcName string) (string, error) {
 	secretName := GenerateOSDEncryptionSecretName(pvcName)
