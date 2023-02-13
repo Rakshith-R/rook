@@ -173,6 +173,89 @@ func openEncryptedDevice(context *clusterd.Context, disk, target, passphrase str
 	return nil
 }
 
+// addEncryptionKey adds a new key to the given slot of the target disk.
+func addEncryptionKey(context *clusterd.Context, disk, passphrase, newPassphrase, slot string) error {
+	dirName, err := os.MkdirTemp("", "keys")
+	if err != nil {
+		return errors.Wrapf(err, "failed to create temporary directory")
+	}
+	defer os.RemoveAll(dirName)
+
+	passphraseFile, err := createTempKeyFile(dirName, passphrase)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create passphrase file")
+	}
+
+	newPassphraseFile, err := createTempKeyFile(dirName, newPassphrase)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create new passphrase file")
+	}
+
+	args := []string{
+		"luksAdd",
+		"--verbose",
+		"--allow-discards",
+		"--key-file", passphraseFile,
+		"--key-slot", slot,
+		"--new-key-file", newPassphraseFile,
+		disk,
+	}
+	output, err := context.Executor.ExecuteCommandWithTimeout(luksOpenCmdTimeOut,
+		cryptsetupBinary, args...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to add new passphrase to encrypted device %q: %q",
+			disk, output)
+	}
+
+	return nil
+}
+
+// removeEncryptionKeySlot removes the given key slot from the target disk.
+func removeEncryptionKeySlot(context *clusterd.Context, disk, passphrase, slot string) error {
+	dirName, err := os.MkdirTemp("", "keys")
+	if err != nil {
+		return errors.Wrapf(err, "failed to create temporary directory")
+	}
+	defer os.RemoveAll(dirName)
+
+	passphraseFile, err := createTempKeyFile(dirName, passphrase)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create passphrase file")
+	}
+
+	args := []string{
+		"luksKillSlot",
+		"--verbose",
+		"--allow-discards",
+		"--key-file", passphraseFile,
+		disk,
+		slot,
+	}
+	output, err := context.Executor.ExecuteCommandWithTimeout(luksOpenCmdTimeOut,
+		cryptsetupBinary, args...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to add remove key slot of encrypted device %q: %q",
+			disk, output)
+	}
+
+	return nil
+}
+
+// createTempKeyFile creates a temporary file containing the given passphrase.
+func createTempKeyFile(dirName, passphrase string) (string, error) {
+	f, err := os.CreateTemp(dirName, "key-*")
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to create temporary file in %q directory", dirName)
+	}
+	defer f.Close()
+	_, err = f.WriteString(passphrase)
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to write passphrase to %q file", f.Name())
+	}
+
+	return f.Name(), nil
+}
+
 func removeEncryptedDevice(context *clusterd.Context, target string) error {
 	args := []string{"remove", "--force", target}
 	output, err := context.Executor.ExecuteCommandWithTimeout(removeEncryptedDeviceCmdTimeOut, "dmsetup", args...)
