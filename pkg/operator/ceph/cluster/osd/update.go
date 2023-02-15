@@ -118,7 +118,7 @@ func (c *updateConfig) updateExistingOSDs(errs *provisionErrors) {
 			continue
 		}
 
-		depName := deploymentName(osdID)
+		depName := DeploymentName(osdID)
 		dep, err := c.cluster.context.Clientset.AppsV1().Deployments(c.cluster.clusterInfo.Namespace).Get(c.cluster.clusterInfo.Context, depName, metav1.GetOptions{})
 		if err != nil {
 			errs.addError("failed to update OSD %d. failed to find existing deployment %q. %v", osdID, depName, err)

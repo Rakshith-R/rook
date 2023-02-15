@@ -195,7 +195,7 @@ func TestAddRemoveNode(t *testing.T) {
 	// verify orchestration for adding the node succeeded
 	assert.True(t, startCompleted)
 	assert.NoError(t, startErr)
-	_, err := clientset.AppsV1().Deployments(namespace).Get(ctx, deploymentName(1), metav1.GetOptions{})
+	_, err := clientset.AppsV1().Deployments(namespace).Get(ctx, DeploymentName(1), metav1.GetOptions{})
 	assert.NoError(t, err)
 
 	// simulate the OSD pod having been created
@@ -291,13 +291,13 @@ func TestAddRemoveNode(t *testing.T) {
 	assert.NoError(t, startErr)
 	// deployment should still exist; OSDs are removed by health monitor code only if they are down,
 	// out, and the user has set removeOSDsIfOutAndSafeToRemove
-	_, err = clientset.AppsV1().Deployments(namespace).Get(ctx, deploymentName(1), metav1.GetOptions{})
+	_, err = clientset.AppsV1().Deployments(namespace).Get(ctx, DeploymentName(1), metav1.GetOptions{})
 	assert.NoError(t, err)
 
 	removeIfOutAndSafeToRemove := true
 	healthMon := NewOSDHealthMonitor(context, cephclient.AdminTestClusterInfo(namespace), removeIfOutAndSafeToRemove, cephv1.CephClusterHealthCheckSpec{})
 	healthMon.checkOSDHealth()
-	_, err = clientset.AppsV1().Deployments(namespace).Get(ctx, deploymentName(1), metav1.GetOptions{})
+	_, err = clientset.AppsV1().Deployments(namespace).Get(ctx, DeploymentName(1), metav1.GetOptions{})
 	assert.True(t, k8serrors.IsNotFound(err))
 }
 

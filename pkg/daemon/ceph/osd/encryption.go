@@ -173,8 +173,8 @@ func openEncryptedDevice(context *clusterd.Context, disk, target, passphrase str
 	return nil
 }
 
-// addEncryptionKey adds a new key to the given slot of the target disk.
-func addEncryptionKey(context *clusterd.Context, disk, passphrase, newPassphrase, slot string) error {
+// AddEncryptionKey adds a new key to the given slot of the target disk.
+func AddEncryptionKey(context *clusterd.Context, disk, passphrase, newPassphrase, slot string) error {
 	dirName, err := os.MkdirTemp("", "keys")
 	if err != nil {
 		return errors.Wrapf(err, "failed to create temporary directory")
@@ -192,14 +192,14 @@ func addEncryptionKey(context *clusterd.Context, disk, passphrase, newPassphrase
 	}
 
 	args := []string{
-		"luksAdd",
 		"--verbose",
-		"--allow-discards",
-		"--key-file", passphraseFile,
-		"--key-slot", slot,
-		"--new-key-file", newPassphraseFile,
+		fmt.Sprintf("--key-file=%s", passphraseFile),
+		fmt.Sprintf("--key-slot=%s", slot),
+		"luksAddKey",
 		disk,
+		newPassphraseFile,
 	}
+	fmt.Println("executing: cryptsetup ", strings.Join(args, " "))
 	output, err := context.Executor.ExecuteCommandWithTimeout(luksOpenCmdTimeOut,
 		cryptsetupBinary, args...)
 	if err != nil {
@@ -211,7 +211,7 @@ func addEncryptionKey(context *clusterd.Context, disk, passphrase, newPassphrase
 }
 
 // removeEncryptionKeySlot removes the given key slot from the target disk.
-func removeEncryptionKeySlot(context *clusterd.Context, disk, passphrase, slot string) error {
+func RemoveEncryptionKeySlot(context *clusterd.Context, disk, passphrase, slot string) error {
 	dirName, err := os.MkdirTemp("", "keys")
 	if err != nil {
 		return errors.Wrapf(err, "failed to create temporary directory")
@@ -224,10 +224,9 @@ func removeEncryptionKeySlot(context *clusterd.Context, disk, passphrase, slot s
 	}
 
 	args := []string{
-		"luksKillSlot",
 		"--verbose",
-		"--allow-discards",
-		"--key-file", passphraseFile,
+		fmt.Sprintf("--key-file=%s", passphraseFile),
+		"luksKillSlot",
 		disk,
 		slot,
 	}

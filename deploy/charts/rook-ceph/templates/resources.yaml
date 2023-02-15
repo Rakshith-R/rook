@@ -2517,7 +2517,7 @@ spec:
                           type: boolean
                         schedule:
                           default: '@weeky'
-                          description: Schedule is the cron format schedule for key rotation.
+                          description: Schedule is the cron format schedule for key rotation. Default value is "@weekly".
                           type: string
                         tokenSecretName:
                           description: TokenSecretName is the kubernetes secret containing the KMS token
@@ -12620,7 +12620,7 @@ spec:
                           type: boolean
                         schedule:
                           default: '@weeky'
-                          description: Schedule is the cron format schedule for key rotation.
+                          description: Schedule is the cron format schedule for key rotation. Default value is "@weekly".
                           type: string
                         tokenSecretName:
                           description: TokenSecretName is the kubernetes secret containing the KMS token
@@ -12642,7 +12642,7 @@ spec:
                           type: boolean
                         schedule:
                           default: '@weeky'
-                          description: Schedule is the cron format schedule for key rotation.
+                          description: Schedule is the cron format schedule for key rotation. Default value is "@weekly".
                           type: string
                         tokenSecretName:
                           description: TokenSecretName is the kubernetes secret containing the KMS token

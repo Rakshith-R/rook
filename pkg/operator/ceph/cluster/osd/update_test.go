@@ -232,7 +232,7 @@ func Test_updateExistingOSDs(t *testing.T) {
 			deploymentsUpdated = []string{}
 			updateConfig.updateExistingOSDs(errs)
 			assert.Zero(t, errs.len())
-			assert.ElementsMatch(t, deploymentsUpdated, []string{deploymentName(i)})
+			assert.ElementsMatch(t, deploymentsUpdated, []string{DeploymentName(i)})
 		}
 		assert.ElementsMatch(t, osdsOnNodes, []int{0, 4})
 		assert.ElementsMatch(t, osdsOnPVCs, []int{2, 6})
@@ -257,7 +257,7 @@ func Test_updateExistingOSDs(t *testing.T) {
 		updateConfig.updateExistingOSDs(errs)
 		assert.Zero(t, errs.len())
 		assert.ElementsMatch(t, deploymentsUpdated,
-			[]string{deploymentName(0), deploymentName(4), deploymentName(6)})
+			[]string{DeploymentName(0), DeploymentName(4), DeploymentName(6)})
 
 		// should NOT be done with updates
 		// this also tests that updateQueue.Len() directly affects doneUpdating()
@@ -270,7 +270,7 @@ func Test_updateExistingOSDs(t *testing.T) {
 		updateConfig.updateExistingOSDs(errs)
 		assert.Zero(t, errs.len())
 		assert.ElementsMatch(t, deploymentsUpdated,
-			[]string{deploymentName(2)})
+			[]string{DeploymentName(2)})
 
 		// should be done with updates
 		// this also tests that updateQueue.Len() directly affects doneUpdating()
@@ -294,14 +294,14 @@ func Test_updateExistingOSDs(t *testing.T) {
 		returnOkToStopIDs = []int{2, 4, 6}
 		updateConfig.updateExistingOSDs(errs)
 		assert.Zero(t, errs.len())
-		assert.ElementsMatch(t, deploymentsUpdated, []string{deploymentName(2)})
+		assert.ElementsMatch(t, deploymentsUpdated, []string{DeploymentName(2)})
 
 		deploymentsUpdated = []string{}
 		osdToBeQueried = 0
 		returnOkToStopIDs = []int{0, 6}
 		updateConfig.updateExistingOSDs(errs)
 		assert.Zero(t, errs.len())
-		assert.ElementsMatch(t, deploymentsUpdated, []string{deploymentName(0)})
+		assert.ElementsMatch(t, deploymentsUpdated, []string{DeploymentName(0)})
 
 		assert.Equal(t, 0, updateQueue.Len()) // should be done with updates
 	})
@@ -322,14 +322,14 @@ func Test_updateExistingOSDs(t *testing.T) {
 		returnOkToStopIDs = []int{2, 4, 6}
 		updateConfig.updateExistingOSDs(errs)
 		assert.Zero(t, errs.len())
-		assert.ElementsMatch(t, deploymentsUpdated, []string{deploymentName(2)})
+		assert.ElementsMatch(t, deploymentsUpdated, []string{DeploymentName(2)})
 
 		deploymentsUpdated = []string{}
 		osdToBeQueried = 0
 		returnOkToStopIDs = []int{0, 6}
 		updateConfig.updateExistingOSDs(errs)
 		assert.Zero(t, errs.len())
-		assert.ElementsMatch(t, deploymentsUpdated, []string{deploymentName(0)})
+		assert.ElementsMatch(t, deploymentsUpdated, []string{DeploymentName(0)})
 
 		assert.Equal(t, 0, updateQueue.Len()) // should be done with updates
 	})
@@ -357,7 +357,7 @@ func Test_updateExistingOSDs(t *testing.T) {
 		returnOkToStopIDs = []int{2}
 		updateConfig.updateExistingOSDs(errs)
 		assert.Zero(t, errs.len())
-		assert.ElementsMatch(t, deploymentsUpdated, []string{deploymentName(2)})
+		assert.ElementsMatch(t, deploymentsUpdated, []string{DeploymentName(2)})
 		assert.Equal(t, 0, updateQueue.Len()) // the OSD should now have been removed from the queue
 	})
 
@@ -377,7 +377,7 @@ func Test_updateExistingOSDs(t *testing.T) {
 		returnOkToStopIDs = []int{} // NOT ok-to-stop
 		updateConfig.updateExistingOSDs(errs)
 		assert.Zero(t, errs.len())
-		assert.ElementsMatch(t, deploymentsUpdated, []string{deploymentName(2)})
+		assert.ElementsMatch(t, deploymentsUpdated, []string{DeploymentName(2)})
 
 		assert.Equal(t, 0, updateQueue.Len()) // should be done with updates
 	})
@@ -397,24 +397,24 @@ func Test_updateExistingOSDs(t *testing.T) {
 		osdToBeQueried = 0
 		returnOkToStopIDs = []int{0, 6}
 		updateInjectFailures = k8sutil.Failures{
-			{ResourceName: deploymentName(6), Error: errors.Errorf("induced failure updating OSD 6")},
+			{ResourceName: DeploymentName(6), Error: errors.Errorf("induced failure updating OSD 6")},
 		}
 		updateConfig.updateExistingOSDs(errs)
 		assert.Equal(t, 1, errs.len())
 		assert.ElementsMatch(t, deploymentsUpdated,
-			[]string{deploymentName(0), deploymentName(6)})
+			[]string{DeploymentName(0), DeploymentName(6)})
 
 		deploymentsUpdated = []string{}
 		osdToBeQueried = 2
 		returnOkToStopIDs = []int{2, 4}
 		updateInjectFailures = k8sutil.Failures{
-			{ResourceName: deploymentName(2), Error: errors.Errorf("induced failure updating OSD 2")},
-			{ResourceName: deploymentName(4), Error: errors.Errorf("induced failure waiting for OSD 4")},
+			{ResourceName: DeploymentName(2), Error: errors.Errorf("induced failure updating OSD 2")},
+			{ResourceName: DeploymentName(4), Error: errors.Errorf("induced failure waiting for OSD 4")},
 		}
 		updateConfig.updateExistingOSDs(errs)
 		assert.Equal(t, 3, errs.len()) // errors should be appended to the same provisionErrors struct
 		assert.ElementsMatch(t, deploymentsUpdated,
-			[]string{deploymentName(2), deploymentName(4)})
+			[]string{DeploymentName(2), DeploymentName(4)})
 
 		assert.Zero(t, updateQueue.Len()) // errors should not be requeued
 	})
@@ -432,7 +432,7 @@ func Test_updateExistingOSDs(t *testing.T) {
 		addDeploymentOnPVC("pvc6", 6)
 		// give OSD 6 bad info by removing env vars from primary container
 		deploymentClient := clientset.AppsV1().Deployments(namespace)
-		d, err := deploymentClient.Get(context.TODO(), deploymentName(6), metav1.GetOptions{})
+		d, err := deploymentClient.Get(context.TODO(), DeploymentName(6), metav1.GetOptions{})
 		if err != nil {
 			panic(err)
 		}
@@ -448,7 +448,7 @@ func Test_updateExistingOSDs(t *testing.T) {
 		updateConfig.updateExistingOSDs(errs)
 		assert.Equal(t, 1, errs.len())
 		assert.ElementsMatch(t, deploymentsUpdated,
-			[]string{deploymentName(0)})
+			[]string{DeploymentName(0)})
 
 		assert.Zero(t, updateQueue.Len()) // errors should not be requeued
 	})
@@ -474,7 +474,7 @@ func Test_updateExistingOSDs(t *testing.T) {
 		returnOkToStopIDs = []int{0, 4}
 		updateConfig.updateExistingOSDs(errs)
 		assert.Zero(t, errs.len())
-		assert.ElementsMatch(t, deploymentsUpdated, []string{deploymentName(4)})
+		assert.ElementsMatch(t, deploymentsUpdated, []string{DeploymentName(4)})
 
 		assert.ElementsMatch(t, osdsOnNodes, []int{4})
 		assert.ElementsMatch(t, osdsOnPVCs, []int{})

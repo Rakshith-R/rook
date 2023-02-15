@@ -274,12 +274,12 @@ var defaultTuneSlowSettings = []string{
 	"--osd-delete-sleep=2",     // Time in seconds to sleep before next removal transaction
 }
 
-func deploymentName(osdID int) string {
+func DeploymentName(osdID int) string {
 	return fmt.Sprintf(osdAppNameFmt, osdID)
 }
 
 func (c *Cluster) makeDeployment(osdProps osdProperties, osd OSDInfo, provisionConfig *provisionConfig) (*apps.Deployment, error) {
-	deploymentName := deploymentName(osd.ID)
+	deploymentName := DeploymentName(osd.ID)
 	replicaCount := int32(1)
 	volumeMounts := controller.CephVolumeMounts(provisionConfig.DataPathMap, false)
 	configVolumeMounts := controller.RookVolumeMounts(provisionConfig.DataPathMap, false)
@@ -873,6 +873,24 @@ func (c *Cluster) getPVCInitContainerActivate(mountPath string, osdProps osdProp
 }
 
 func (c *Cluster) generateEncryptionOpenBlockContainer(resources v1.ResourceRequirements, containerName, pvcName, volumeMountPVCName, cryptBlockType, blockType, mountPath string) v1.Container {
+	return v1.Container{
+		Name:            containerName,
+		Image:           c.spec.CephVersion.Image,
+		ImagePullPolicy: controller.GetContainerImagePullPolicy(c.spec.CephVersion.ImagePullPolicy),
+		// Running via bash allows us to check whether the device is already opened or not
+		// If we don't the cryptsetup command will fail saying the device is already opened
+		Command: []string{
+			"/bin/bash",
+			"-c",
+			fmt.Sprintf(openEncryptedBlock, c.clusterInfo.FSID, pvcName, encryptionKeyPath(), encryptionBlockDestinationCopy(mountPath, blockType), EncryptionDMName(pvcName, cryptBlockType), EncryptionDMPath(pvcName, cryptBlockType)),
+		},
+		VolumeMounts:    []v1.VolumeMount{getPvcOSDBridgeMountActivate(mountPath, volumeMountPVCName), getDeviceMapperMount()},
+		SecurityContext: controller.PrivilegedContext(true),
+		Resources:       resources,
+	}
+}
+
+func (c *Cluster) generateEncryptionKeyRotationContainer(resources v1.ResourceRequirements, containerName, pvcName, volumeMountPVCName, cryptBlockType, blockType, mountPath string) v1.Container {
 	return v1.Container{
 		Name:            containerName,
 		Image:           c.spec.CephVersion.Image,
