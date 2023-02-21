@@ -714,6 +714,25 @@ func applyTopologyAffinity(spec *v1.PodSpec, osd OSDInfo) error {
 	return nil
 }
 
+func (c *Cluster) applyOSDAffinity(spec *v1.PodSpec, osd OSDInfo, osdProps osdProperties) {
+	osdAffinity := &v1.PodAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+			{
+				LabelSelector: &metav1.LabelSelector{
+					MatchLabels: c.getOSDLabels(osd, osdProps.crushHostname, osdProps.portable),
+				},
+				TopologyKey: "kubernetes.io/hostname",
+			},
+		},
+	}
+
+	p := cephv1.Placement{PodAffinity: osdAffinity}
+	p.ApplyToPodSpec(spec)
+	if spec.Affinity != nil {
+		spec.Affinity.PodAntiAffinity = nil
+	}
+}
+
 // To get rook inside the container, the config init container needs to copy "rook" binary into a volume.
 // Get the config flag so rook will copy the binary and create the volume and mount that will be shared between
 // the init container and the daemon container

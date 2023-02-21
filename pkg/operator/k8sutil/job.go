@@ -130,3 +130,15 @@ func AddRookVersionLabelToJob(j *batch.Job) {
 	}
 	addRookVersionLabel(j.Labels)
 }
+
+// AddRookVersionLabelToCronJob adds or updates a label reporting the Rook version which last
+// modified a CronJob.
+func AddRookVersionLabelToCronJob(j *batch.CronJob) {
+	if j == nil {
+		return
+	}
+	if j.Labels == nil {
+		j.Labels = map[string]string{}
+	}
+	addRookVersionLabel(j.Labels)
+}

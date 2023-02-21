@@ -56,6 +56,8 @@ const (
 	FailureDomainKey                = "failure-domain"
 	prepareAppName                  = "rook-ceph-osd-prepare"
 	prepareAppNameFmt               = "rook-ceph-osd-prepare-%s"
+	keyRotationCronJobAppName       = "rook-ceph-key-rotation"
+	keyRotationCronJobAppNameFmt    = "rook-ceph-key-rotation-%d"
 	osdAppNameFmt                   = "rook-ceph-osd-%d"
 	defaultWaitTimeoutForHealthyOSD = 10 * time.Minute
 	// OsdIdLabelKey is the OSD label key
@@ -239,6 +241,13 @@ func (c *Cluster) Start() error {
 
 	// The following block is used to apply any command(s) required by an upgrade
 	c.applyUpgradeOSDFunctionality()
+
+	if c.spec.Storage.IsOnPVCEncrypted() {
+		err = c.reconcileKeyRotationCronJob()
+		if err != nil {
+			return errors.Wrapf(err, "failed to reconcile key rotation cronjob in namespace %q", namespace)
+		}
+	}
 
 	logger.Infof("finished running OSDs in namespace %q", namespace)
 	return nil

@@ -368,7 +368,11 @@ func createDaemonOnPVC(c *Cluster, osd OSDInfo, pvcName string, config *provisio
 	updateConditionFunc(c.clusterInfo.Context, c.context, c.clusterInfo.NamespacedName(), k8sutil.ObservedGenerationNotAvailable, cephv1.ConditionProgressing, v1.ConditionTrue, cephv1.ClusterProgressingReason, message)
 
 	_, err = k8sutil.CreateDeployment(c.clusterInfo.Context, c.context.Clientset, d)
-	return errors.Wrapf(err, "failed to create deployment for OSD %d on PVC %q", osd.ID, pvcName)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create deployment for OSD %d on PVC %q", osd.ID, pvcName)
+	}
+
+	return nil
 }
 
 func createDaemonOnNode(c *Cluster, osd OSDInfo, nodeName string, config *provisionConfig) error {

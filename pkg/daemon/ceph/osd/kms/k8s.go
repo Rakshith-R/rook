@@ -45,6 +45,12 @@ func (c *Config) storeSecretInKubernetes(pvcName, key string) error {
 		return err
 	}
 
+	// Set the ownerref to the Secret
+	err = c.ClusterInfo.OwnerInfo.SetControllerReference(s)
+	if err != nil {
+		return errors.Wrapf(err, "failed to set owner reference to osd encryption key secret %q", s.Name)
+	}
+
 	// Create the Kubernetes Secret
 	_, err = c.context.Clientset.CoreV1().Secrets(c.ClusterInfo.Namespace).Create(c.ClusterInfo.Context, s, metav1.CreateOptions{})
 	if err != nil && !kerrors.IsAlreadyExists(err) {
@@ -61,10 +67,10 @@ func (c *Config) updateSecretInKubernetes(pvcName, key string) error {
 		return err
 	}
 
-	// Create the Kubernetes Secret
+	// Update the Kubernetes Secret
 	_, err = c.context.Clientset.CoreV1().Secrets(c.ClusterInfo.Namespace).Update(c.ClusterInfo.Context, s, metav1.UpdateOptions{})
 	if err != nil && !kerrors.IsAlreadyExists(err) {
-		return errors.Wrapf(err, "failed to save ceph osd encryption key as a secret for pvc %q", pvcName)
+		return errors.Wrapf(err, "failed to update ceph osd encryption key for pvc %q", pvcName)
 	}
 
 	return nil
@@ -94,12 +100,6 @@ func generateOSDEncryptedKeySecret(pvcName, key string, clusterInfo *cephclient.
 			OsdEncryptionSecretNameKeyName: key,
 		},
 		Type: k8sutil.RookType,
-	}
-
-	// Set the ownerref to the Secret
-	err := clusterInfo.OwnerInfo.SetControllerReference(s)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to set owner reference to osd encryption key secret %q", s.Name)
 	}
 
 	return s, nil
