@@ -207,6 +207,14 @@ rules:
   - update
   - delete
   - deletecollection
+# To allow setting owner reference of key rotation cron jobs
+# on osd deployments.
+- apiGroups:
+  - ""
+  resources:
+  - deployents/finalizers
+  verbs:
+  - update
 - apiGroups:
   - healthchecking.openshift.io
   resources:

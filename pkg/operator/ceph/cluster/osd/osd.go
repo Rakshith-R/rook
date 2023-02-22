@@ -242,11 +242,9 @@ func (c *Cluster) Start() error {
 	// The following block is used to apply any command(s) required by an upgrade
 	c.applyUpgradeOSDFunctionality()
 
-	if c.spec.Storage.IsOnPVCEncrypted() {
-		err = c.reconcileKeyRotationCronJob()
-		if err != nil {
-			return errors.Wrapf(err, "failed to reconcile key rotation cronjob in namespace %q", namespace)
-		}
+	err = c.reconcileKeyRotationCronJob()
+	if err != nil {
+		return errors.Wrapf(err, "failed to reconcile key rotation cron job")
 	}
 
 	logger.Infof("finished running OSDs in namespace %q", namespace)

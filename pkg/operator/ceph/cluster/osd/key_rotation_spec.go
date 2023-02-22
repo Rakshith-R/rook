@@ -36,12 +36,7 @@ func keyRotationCronJobName(osdID int) string {
 	return fmt.Sprintf(keyRotationCronJobAppNameFmt, osdID)
 }
 
-func (c *Cluster) makeKeyRotationCronJob(pvcName string, osd OSDInfo) (*batch.CronJob, error) {
-	osdLongName := fmt.Sprintf("OSD %d on PVC %q", osd.ID, pvcName)
-	osdProps, err := c.getOSDPropsForPVC(pvcName, osd.DeviceClass)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to generate config for %s", osdLongName)
-	}
+func (c *Cluster) makeKeyRotationCronJob(pvcName string, osd OSDInfo, osdProps osdProperties) (*batch.CronJob, error) {
 	podSpec, err := c.keyRotationPodTemplateSpec(osdProps, osd, v1.RestartPolicyOnFailure)
 	if err != nil {
 		return nil, err
@@ -57,7 +52,7 @@ func (c *Cluster) makeKeyRotationCronJob(pvcName string, osd OSDInfo) (*batch.Cr
 			},
 		},
 		Spec: batch.CronJobSpec{
-			Schedule: "", // osdProps.keyRotationSchedule,
+			Schedule: c.spec.Security.KeyManagementService.Schedule,
 			JobTemplate: batch.JobTemplateSpec{
 				Spec: batch.JobSpec{
 					Template: *podSpec,
@@ -67,10 +62,6 @@ func (c *Cluster) makeKeyRotationCronJob(pvcName string, osd OSDInfo) (*batch.Cr
 	}
 
 	k8sutil.AddRookVersionLabelToCronJob(cronJob)
-	err = c.clusterInfo.OwnerInfo.SetControllerReference(cronJob)
-	if err != nil {
-		return nil, err
-	}
 
 	// override the resources of all the init containers and main container with the expected osd prepare resources
 	c.applyResourcesToAllContainers(&podSpec.Spec, cephv1.GetPrepareOSDResources(c.spec.Resources))
@@ -226,22 +217,32 @@ func (c *Cluster) reconcileKeyRotationCronJob() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to query existing OSD deployments")
 	}
+	logger.Infof("found deployments: %+v", deployments.Items)
 
 	for _, osdDep := range deployments.Items {
 		osd, err := c.getOSDInfo(&osdDep)
 		if err != nil {
 			return errors.Wrap(err, "failed to get osd info")
 		}
-		if !osd.Encrypted {
+		pvcName, ok := osdDep.Labels[OSDOverPVCLabelKey]
+		if !ok {
+			return errors.Errorf("failed to get pvc name for osd %q", osdDep.Name)
+		}
+		osdProps, err := c.getOSDPropsForPVC(pvcName, osd.DeviceClass)
+		if err != nil {
+			return errors.Wrapf(err, "failed to generate config for osd %q", osdDep.Name)
+		}
+		if !osdProps.encrypted {
 			continue
 		}
 
-		cj, err := c.makeKeyRotationCronJob(osdDep.Labels[OSDOverPVCLabelKey], osd)
+		logger.Infof("starting OSD key rotation cron job for osd %q", osd.ID)
+		cj, err := c.makeKeyRotationCronJob(osdDep.Labels[OSDOverPVCLabelKey], osd, osdProps)
 		if err != nil {
 			return errors.Wrap(err, "failed to make key rotation cron job")
 		}
 
-		err = ctrl.SetControllerReference(&osdDep, cj, c.context.Client.Scheme())
+		err = ctrl.SetOwnerReference(&osdDep, cj, c.context.Client.Scheme())
 		if err != nil {
 			return errors.Wrapf(err, "failed to set controllerReference on cron job %q", cj.Name)
 		}
