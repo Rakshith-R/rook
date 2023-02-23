@@ -52,7 +52,8 @@ func (c *Cluster) makeKeyRotationCronJob(pvcName string, osd OSDInfo, osdProps o
 			},
 		},
 		Spec: batch.CronJobSpec{
-			Schedule: c.spec.Security.KeyManagementService.Schedule,
+			ConcurrencyPolicy: batch.ForbidConcurrent,
+			Schedule:          c.spec.Security.KeyManagementService.Schedule,
 			JobTemplate: batch.JobTemplateSpec{
 				Spec: batch.JobSpec{
 					Template: *podSpec,
@@ -60,9 +61,11 @@ func (c *Cluster) makeKeyRotationCronJob(pvcName string, osd OSDInfo, osdProps o
 			},
 		},
 	}
-
+	// err = c.clusterInfo.OwnerInfo.SetOwnerReference(cronJob)
+	// if err != nil {
+	// 	return nil, errors.Wrapf(err, "failed to set owner reference on key rotation cron job %q", cronJob.Name)
+	// }
 	k8sutil.AddRookVersionLabelToCronJob(cronJob)
-
 	// override the resources of all the init containers and main container with the expected osd prepare resources
 	c.applyResourcesToAllContainers(&podSpec.Spec, cephv1.GetPrepareOSDResources(c.spec.Resources))
 	return cronJob, nil
@@ -168,7 +171,7 @@ func (c *Cluster) getKeyRotationContainer(osdProps osdProperties, volumeMounts [
 	envVars = append(envVars, setDebugLogLevelEnvVar(true))
 	envVars = append(envVars, v1.EnvVar{Name: "ROOK_CEPH_VERSION", Value: c.clusterInfo.CephVersion.CephVersionFormatted()})
 
-	args := []string{"rotate-key", osdProps.pvc.ClaimName}
+	args := []string{osdProps.pvc.ClaimName}
 	args = append(args, devices...)
 
 	// run privileged always since we always mount /dev
@@ -178,7 +181,7 @@ func (c *Cluster) getKeyRotationContainer(osdProps osdProperties, volumeMounts [
 	readOnlyRootFilesystem := false
 
 	osdProvisionContainer := v1.Container{
-		Command:         []string{"rook", "key-management"},
+		Command:         []string{"rook", "key-management", "rotate-key"},
 		Args:            args,
 		Name:            keyRotationCronJobAppName,
 		Image:           c.rookVersion,
@@ -199,10 +202,9 @@ func (c *Cluster) getKeyRotationContainer(osdProps osdProperties, volumeMounts [
 }
 
 func (c *Cluster) reconcileKeyRotationCronJob() error {
+	selector := labels.SelectorFromSet(map[string]string{k8sutil.AppAttr: keyRotationCronJobAppName})
+	listOpt := &client.ListOptions{Namespace: c.clusterInfo.Namespace, LabelSelector: selector}
 	if !c.spec.Security.KeyManagementService.EnableKeyRotation {
-		selector := labels.SelectorFromSet(map[string]string{k8sutil.AppAttr: keyRotationCronJobAppName})
-		listOpt := &client.ListOptions{Namespace: c.clusterInfo.Namespace, LabelSelector: selector}
-
 		err := c.context.Client.DeleteAllOf(c.clusterInfo.Context, &batch.CronJob{}, &client.DeleteAllOfOptions{ListOptions: *listOpt})
 		if client.IgnoreNotFound(err) != nil {
 			return errors.Wrap(err, "failed to delete key rotation cron jobs")
@@ -217,8 +219,9 @@ func (c *Cluster) reconcileKeyRotationCronJob() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to query existing OSD deployments")
 	}
-	logger.Infof("found deployments: %+v", deployments.Items)
+	logger.Infof("found deployments: %v", len(deployments.Items))
 
+	cronJobs := make(map[string]bool, len(deployments.Items))
 	for _, osdDep := range deployments.Items {
 		osd, err := c.getOSDInfo(&osdDep)
 		if err != nil {
@@ -252,8 +255,26 @@ func (c *Cluster) reconcileKeyRotationCronJob() error {
 			return errors.Wrapf(err, "failed to create or update key rotation cron job %q", cj.Name)
 		}
 		logger.Infof("started OSD key rotation cron job %q", cj.Name)
+		cronJobs[cj.Name] = true
 	}
 	logger.Infof("successfully started OSD key rotation cron jobs")
+
+	existingCronJobsList, err := c.context.Clientset.BatchV1().
+		CronJobs(c.clusterInfo.Namespace).
+		List(c.clusterInfo.Context, listOpts)
+	if err != nil {
+		return errors.Wrap(err, "failed to query existing key rotation cron jobs")
+	}
+	for _, cj := range existingCronJobsList.Items {
+		// delete the cron job if it is not in the list created from the OSD deployments.
+		if _, ok := cronJobs[cj.Name]; !ok {
+			err := c.context.Clientset.BatchV1().CronJobs(c.clusterInfo.Namespace).Delete(c.clusterInfo.Context, cj.Name, metav1.DeleteOptions{})
+			if client.IgnoreNotFound(err) != nil {
+				return errors.Wrapf(err, "failed to delete key rotation cron job %q", cj.Name)
+			}
+			logger.Infof("successfully deleted key rotation cron job %q", cj.Name)
+		}
+	}
 
 	return nil
 }

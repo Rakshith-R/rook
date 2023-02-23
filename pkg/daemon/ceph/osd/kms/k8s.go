@@ -62,13 +62,15 @@ func (c *Config) storeSecretInKubernetes(pvcName, key string) error {
 
 // updateSecretInKubernetes updates the dmcrypt key in a Kubernetes Secret
 func (c *Config) updateSecretInKubernetes(pvcName, key string) error {
-	s, err := generateOSDEncryptedKeySecret(pvcName, key, c.ClusterInfo)
+	secretName := GenerateOSDEncryptionSecretName(pvcName)
+	secret, err := c.context.Clientset.CoreV1().Secrets(c.ClusterInfo.Namespace).Get(c.ClusterInfo.Context, secretName, metav1.GetOptions{})
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to get secret %q", secretName)
 	}
 
+	secret.StringData = map[string]string{OsdEncryptionSecretNameKeyName: key}
 	// Update the Kubernetes Secret
-	_, err = c.context.Clientset.CoreV1().Secrets(c.ClusterInfo.Namespace).Update(c.ClusterInfo.Context, s, metav1.UpdateOptions{})
+	_, err = c.context.Clientset.CoreV1().Secrets(c.ClusterInfo.Namespace).Update(c.ClusterInfo.Context, secret, metav1.UpdateOptions{})
 	if err != nil && !kerrors.IsAlreadyExists(err) {
 		return errors.Wrapf(err, "failed to update ceph osd encryption key for pvc %q", pvcName)
 	}

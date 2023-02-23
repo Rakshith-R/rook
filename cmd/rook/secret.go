@@ -18,18 +18,17 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
-	"time"
 
+	"github.com/coreos/pkg/capnslog"
 	"github.com/pkg/errors"
 	"github.com/rook/rook/cmd/rook/rook"
 	"github.com/rook/rook/pkg/clusterd"
 	"github.com/rook/rook/pkg/daemon/ceph/client"
 	"github.com/rook/rook/pkg/daemon/ceph/osd"
 	"github.com/rook/rook/pkg/daemon/ceph/osd/kms"
-	clusterOSD "github.com/rook/rook/pkg/operator/ceph/cluster/osd"
+	oposd "github.com/rook/rook/pkg/operator/ceph/cluster/osd"
 
 	operator "github.com/rook/rook/pkg/operator/ceph"
 	"github.com/rook/rook/pkg/operator/k8sutil"
@@ -38,18 +37,22 @@ import (
 )
 
 const (
-	slotOne string = "1"
-	slotTwo string = "2"
+	slotZero string = "0"
+	slotOne  string = "1"
 )
 
-// KeyManagementCmd defines a top-level utility command which interacts with encrypted keys stored in
-// Key Management Service (KMS).
-var KeyManagementCmd = &cobra.Command{
-	Use:   "key-management",
-	Short: "key-management interacts with a given Key Management System and perform actions.",
-	Long: `The secret sub-command helps interacting with Key Management System.
-	It can perform various actions such as retrieving the content of a Key Encryption Key.`,
-}
+var (
+	logger = capnslog.NewPackageLogger("github.com/rook/rook", "key-management")
+	// KeyManagementCmd defines a top-level utility command which interacts with encrypted keys stored in
+	// Key Management Service (KMS).
+	KeyManagementCmd = &cobra.Command{
+		Use:   "key-management",
+		Short: "key-management interacts with a given Key Management System and perform actions.",
+		Long: `The secret sub-command helps interacting with Key Management System.
+	It can perform various actions such as retrieving the content of a Key Encryption Key and
+	rotating Key Encryption Key.`,
+	}
+)
 
 func init() {
 	KeyManagementCmd.AddCommand(
@@ -123,7 +126,7 @@ func getSecret(cmd *cobra.Command, args []string) {
 // cliRotateSecret is the Cobra CLI call
 func cliRotateSecret() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "activate-key-rotation [kms-secret-key] [data-device] [metadata-device] [wal-device]",
+		Use:   "rotate-key [kms-secret-key] [data-device] [metadata-device] [wal-device]",
 		Short: "Rotate a secret from a given KMS",
 		Args:  cobra.RangeArgs(2, 4),
 		Run:   rotateSecret,
@@ -139,86 +142,66 @@ func rotateSecret(cmd *cobra.Command, args []string) {
 	devicePaths := args[1:]
 	keyManagementService, context := startSecret()
 	keyManagementService.ClusterInfo.Context = ctx
-	fmt.Println("Waiting for 30 seconds")
-	time.Sleep(time.Second * 30)
-	// osdID, ok := os.LookupEnv("ROOK_OSD_ID")
-	// if !ok {
-	// 	rook.TerminateFatal(errors.New("failed to find osd id"))
-	// }
-	// depName := clusterOSD.DeploymentName(osdID)
-	// dep, err := context.Clientset.AppsV1().Deployments(keyManagementService.ClusterInfo.Namespace).Get(ctx, depName, metav1.GetOptions{})
-	// if err != nil {
-	// 	rook.TerminateFatal(errors.Wrapf(err, "failed to get deployment %q", depName))
-	// }
 
-	// dep.GetCreationTimestamp()
-
-	fmt.Println("Fetching the secret")
-	// Fetch the secret
-	// keys in slot : K1
-	// key in KMS: K1
+	logger.Debugf("fetching the current key")
+	// Fetch the currentKey.
 	currentKey, err := keyManagementService.GetSecret(secretName)
 	if err != nil {
 		rook.TerminateFatal(errors.Wrapf(err, "failed to get secret %q", secretName))
 	}
 
-	fmt.Printf("Adding the secret %q to the device", currentKey)
-	// Add currentKey to slot 2
-	// keys in slot : K1 K1
-	// key in KMS: K1
+	// Ensure currentKey is in slot 1.
 	for _, devicePath := range devicePaths {
-		err = osd.AddEncryptionKey(context, devicePath, currentKey, currentKey, slotTwo)
+		logger.Debugf("adding the current key to slot %q of the device %q", slotOne, devicePath)
+		err = osd.AddEncryptionKey(context, devicePath, currentKey, currentKey, slotOne)
 		if err != nil {
-			rook.TerminateFatal(errors.Wrapf(err, "failed to get secret %q", secretName))
+			rook.TerminateFatal(errors.Wrapf(err, "failed to add the current key to slot %q of the device", slotOne))
 		}
 	}
 
-	fmt.Println("Generating new secret")
-	// Generate new key
-	newKey, err := clusterOSD.GenerateDmCryptKey()
+	logger.Debugf("Generating new key")
+	// Generate new key.
+	newKey, err := oposd.GenerateDmCryptKey()
 	if err != nil {
 		rook.TerminateFatal(errors.Wrapf(err, "failed to generate new key"))
 	}
 
-	fmt.Printf("Adding the secret %q to the device", newKey)
-	// Add newKey to slot 1
-	// keys in slot : K2 K1
-	// key in KMS: K1
+	// Add newKey to slot 0.
 	for _, devicePath := range devicePaths {
-		err = osd.AddEncryptionKey(context, devicePath, currentKey, newKey, slotOne)
+		logger.Debugf("removing key slot %q if filled of the device %q", slotZero, devicePath)
+		err = osd.RemoveEncryptionKeySlot(context, devicePath, currentKey, slotZero)
 		if err != nil {
-			rook.TerminateFatal(errors.Wrapf(err, "failed to get secret %q", secretName))
+			rook.TerminateFatal(err)
+		}
+		logger.Debugf("adding new key to slot %q of the device %q", slotZero, devicePath)
+		err = osd.AddEncryptionKey(context, devicePath, currentKey, newKey, slotZero)
+		if err != nil {
+			rook.TerminateFatal(err)
 		}
 	}
 
-	fmt.Println("Updating the secret in the KMS")
-	// Update new key in the KMS
-	// keys in slot : K2 K1
-	// key in KMS: K2
+	logger.Debugf("updating the new key in the KMS")
+	// Update new key.
 	err = keyManagementService.UpdateSecret(secretName, newKey)
 	if err != nil {
-		rook.TerminateFatal(errors.Wrapf(err, "failed to get secret %q", secretName))
+		rook.TerminateFatal(err)
 	}
 
-	fmt.Println("Fetching the secret from the KMS")
+	logger.Debugf("fetching the key from the KMS to verify it.")
 	// Fetch key to verify its the new key.
-	// keys in slot : K2 K1
-	// key in KMS: K2
 	keyInKMS, err := keyManagementService.GetSecret(secretName)
 	if keyInKMS != newKey {
-		rook.TerminateFatal(errors.Wrapf(err, "failed to get secret %q", secretName))
+		rook.TerminateFatal(err)
 	}
 
-	fmt.Println("Removing the old key from the device")
-	// Remove old key from slot 2.
-	// keys in slot : K2
-	// key in KMS: K2
+	// Remove old key from slot 1.
 	for _, devicePath := range devicePaths {
-		err = osd.RemoveEncryptionKeySlot(context, devicePath, newKey, slotTwo)
+		logger.Debugf("removing the old key from the slot %q of the device %q", slotOne, devicePath)
+		err = osd.RemoveEncryptionKeySlot(context, devicePath, newKey, slotOne)
 		if err != nil {
-			rook.TerminateFatal(errors.Wrapf(err, "failed to get secret %q", secretName))
+			rook.TerminateFatal(err)
 		}
 	}
 
-	fmt.Println("Success")
+	logger.Debugf("Successfully rotated the key")
 }

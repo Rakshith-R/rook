@@ -1,0 +1,1120 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    k8s.v1.cni.cncf.io/network-status: |-
+      [{
+          "name": "openshift-sdn",
+          "interface": "eth0",
+          "ips": [
+              "10.128.2.27"
+          ],
+          "default": true,
+          "dns": {}
+      }]
+    k8s.v1.cni.cncf.io/networks-status: |-
+      [{
+          "name": "openshift-sdn",
+          "interface": "eth0",
+          "ips": [
+              "10.128.2.27"
+          ],
+          "default": true,
+          "dns": {}
+      }]
+    openshift.io/scc: rook-ceph
+  creationTimestamp: "2023-02-21T12:24:04Z"
+  generateName: rook-ceph-osd-0-8dd79dc84-
+  labels:
+    app: rook-ceph-osd
+    app.kubernetes.io/component: cephclusters.ceph.rook.io
+    app.kubernetes.io/created-by: rook-ceph-operator
+    app.kubernetes.io/instance: "0"
+    app.kubernetes.io/managed-by: rook-ceph-operator
+    app.kubernetes.io/name: ceph-osd
+    app.kubernetes.io/part-of: rook-ceph
+    ceph-osd-id: "0"
+    ceph.rook.io/DeviceSet: set1
+    ceph.rook.io/pvc: set1-data-0pnsb6
+    ceph_daemon_id: "0"
+    ceph_daemon_type: osd
+    device-class: nvme
+    failure-domain: set1-data-0pnsb6
+    osd: "0"
+    pod-template-hash: 8dd79dc84
+    portable: "true"
+    rook.io/operator-namespace: rook-ceph
+    rook_cluster: rook-ceph
+    topology-location-host: set1-data-0pnsb6
+    topology-location-region: us-east-1
+    topology-location-root: default
+    topology-location-zone: us-east-1b
+  name: rook-ceph-osd-0-8dd79dc84-676rz
+  namespace: rook-ceph
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: ReplicaSet
+    name: rook-ceph-osd-0-8dd79dc84
+    uid: 00d9344f-6bb0-4ed1-b0bf-80536d998c26
+  resourceVersion: "68221"
+  uid: 301c2692-ee16-45a2-905e-33e4d310bd51
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: topology.kubernetes.io/zone
+            operator: In
+            values:
+            - us-east-1b
+  containers:
+  - args:
+    - --foreground
+    - --id
+    - "0"
+    - --fsid
+    - f211f577-83c3-402f-adf6-da7fc6658b1c
+    - --setuser
+    - ceph
+    - --setgroup
+    - ceph
+    - --crush-location=root=default host=set1-data-0pnsb6 region=us-east-1 zone=us-east-1b
+    - --osd-recovery-sleep=0.1
+    - --osd-snap-trim-sleep=2
+    - --osd-delete-sleep=2
+    - --log-to-stderr=true
+    - --err-to-stderr=true
+    - --mon-cluster-log-to-stderr=true
+    - '--log-stderr-prefix=debug '
+    - --default-log-to-file=false
+    - --default-mon-cluster-log-to-file=false
+    - --ms-learn-addr-from-peer=false
+    command:
+    - ceph-osd
+    env:
+    - name: ROOK_NODE_NAME
+      value: set1-data-0pnsb6
+    - name: ROOK_CLUSTER_ID
+      value: 0b72b022-ff9d-4c30-97ff-b851097faf67
+    - name: ROOK_CLUSTER_NAME
+      value: rook-ceph
+    - name: ROOK_PRIVATE_IP
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: status.podIP
+    - name: ROOK_PUBLIC_IP
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: status.podIP
+    - name: POD_NAMESPACE
+      value: rook-ceph
+    - name: ROOK_MON_ENDPOINTS
+      valueFrom:
+        configMapKeyRef:
+          key: data
+          name: rook-ceph-mon-endpoints
+    - name: ROOK_CONFIG_DIR
+      value: /var/lib/rook
+    - name: ROOK_CEPH_CONFIG_OVERRIDE
+      value: /etc/rook/config/override.conf
+    - name: NODE_NAME
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: spec.nodeName
+    - name: ROOK_CRUSHMAP_ROOT
+      value: default
+    - name: ROOK_CRUSHMAP_HOSTNAME
+      value: set1-data-0pnsb6
+    - name: CEPH_VOLUME_DEBUG
+      value: "1"
+    - name: CEPH_VOLUME_SKIP_RESTORECON
+      value: "1"
+    - name: DM_DISABLE_UDEV
+      value: "1"
+    - name: CONTAINER_IMAGE
+      value: quay.io/ceph/ceph:v17.2.2
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: metadata.name
+    - name: POD_MEMORY_LIMIT
+      valueFrom:
+        resourceFieldRef:
+          divisor: "0"
+          resource: limits.memory
+    - name: POD_MEMORY_REQUEST
+      valueFrom:
+        resourceFieldRef:
+          divisor: "0"
+          resource: requests.memory
+    - name: POD_CPU_LIMIT
+      valueFrom:
+        resourceFieldRef:
+          divisor: "1"
+          resource: limits.cpu
+    - name: POD_CPU_REQUEST
+      valueFrom:
+        resourceFieldRef:
+          divisor: "0"
+          resource: requests.cpu
+    - name: CEPH_USE_RANDOM_NONCE
+      value: "true"
+    - name: ROOK_OSD_UUID
+      value: 4eb1c63b-2d44-4bd5-8906-c714c08c24f4
+    - name: ROOK_OSD_ID
+      value: "0"
+    - name: ROOK_CEPH_MON_HOST
+      valueFrom:
+        secretKeyRef:
+          key: mon_host
+          name: rook-ceph-config
+    - name: CEPH_ARGS
+      value: -m $(ROOK_CEPH_MON_HOST)
+    - name: ROOK_BLOCK_PATH
+      value: /dev/mapper/ceph-4eb1c63b-2d44-4bd5-8906-c714c08c24f4-nvme5n1-block-dmcrypt
+    - name: ROOK_CV_MODE
+      value: raw
+    - name: ROOK_OSD_DEVICE_CLASS
+      value: nvme
+    - name: ROOK_OSD_PVC_SIZE
+      value: 10Gi
+    - name: ROOK_TOPOLOGY_AFFINITY
+      value: topology.kubernetes.io/zone=us-east-1b
+    - name: ROOK_PVC_BACKED_OSD
+      value: "true"
+    envFrom:
+    - configMapRef:
+        name: rook-ceph-osd-env-override
+        optional: true
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    livenessProbe:
+      exec:
+        command:
+        - env
+        - -i
+        - sh
+        - -c
+        - |-
+          outp="$(ceph --admin-daemon /run/ceph/ceph-osd.0.asok status 2>&1)"
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "ceph daemon health check failed with the following output:"
+            echo "$outp" | sed -e 's/^/> /g'
+            exit $rc
+          fi
+      failureThreshold: 3
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    name: osd
+    resources: {}
+    securityContext:
+      privileged: true
+      readOnlyRootFilesystem: false
+      runAsUser: 0
+    startupProbe:
+      exec:
+        command:
+        - env
+        - -i
+        - sh
+        - -c
+        - |-
+          outp="$(ceph --admin-daemon /run/ceph/ceph-osd.0.asok status 2>&1)"
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "ceph daemon health check failed with the following output:"
+            echo "$outp" | sed -e 's/^/> /g'
+            exit $rc
+          fi
+      failureThreshold: 720
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/lib/rook
+      name: rook-data
+    - mountPath: /etc/ceph
+      name: rook-config-override
+      readOnly: true
+    - mountPath: /run/ceph
+      name: ceph-daemons-sock-dir
+    - mountPath: /var/log/ceph
+      name: rook-ceph-log
+    - mountPath: /var/lib/ceph/crash
+      name: rook-ceph-crash
+    - mountPath: /run/udev
+      name: run-udev
+    - mountPath: /dev/mapper
+      name: dev-mapper
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+    workingDir: /var/log/ceph
+  - command:
+    - /bin/bash
+    - -x
+    - -e
+    - -m
+    - -c
+    - "\nCEPH_CLIENT_ID=ceph-osd.0\nPERIODICITY=daily\nLOG_ROTATE_CEPH_FILE=/etc/logrotate.d/ceph\nLOG_MAX_SIZE=500M\nROTATE=7\n\n#
+      edit the logrotate file to only rotate a specific daemon log\n# otherwise we
+      will logrotate log files without reloading certain daemons\n# this might happen
+      when multiple daemons run on the same machine\nsed -i \"s|*.log|$CEPH_CLIENT_ID.log|\"
+      \"$LOG_ROTATE_CEPH_FILE\"\n\n# replace default daily with given user input\nsed
+      --in-place \"s/daily/$PERIODICITY/g\" \"$LOG_ROTATE_CEPH_FILE\"\n\n# replace
+      rotate count, default 7 for all ceph daemons other than rbd-mirror\nsed --in-place
+      \"s/rotate 7/rotate $ROTATE/g\" \"$LOG_ROTATE_CEPH_FILE\"\n\nif [ \"$LOG_MAX_SIZE\"
+      != \"0\" ]; then\n\t# adding maxsize $LOG_MAX_SIZE at the 4th line of the logrotate
+      config file with 4 spaces to maintain indentation\n\tsed --in-place \"4i \\
+      \\ \\ \\ maxsize $LOG_MAX_SIZE\" \"$LOG_ROTATE_CEPH_FILE\"\nfi\n\nwhile true;
+      do\n\t# we don't force the logrorate but we let the logrotate binary handle
+      the rotation based on user's input for periodicity and size\n\tlogrotate --verbose
+      \"$LOG_ROTATE_CEPH_FILE\"\n\tsleep 15m\ndone\n"
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: log-collector
+    resources: {}
+    securityContext:
+      privileged: true
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    tty: true
+    volumeMounts:
+    - mountPath: /etc/ceph
+      name: rook-config-override
+      readOnly: true
+    - mountPath: /run/ceph
+      name: ceph-daemons-sock-dir
+    - mountPath: /var/log/ceph
+      name: rook-ceph-log
+    - mountPath: /var/lib/ceph/crash
+      name: rook-ceph-crash
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: true
+  hostIPC: true
+  imagePullSecrets:
+  - name: rook-ceph-osd-dockercfg-vkb6k
+  initContainers:
+  - command:
+    - /bin/bash
+    - -c
+    - "\nset -xe\n\nPVC_SOURCE=/set1-data-0pnsb6\nPVC_DEST=/var/lib/ceph/osd/ceph-0/block-tmp\nCP_ARGS=(--archive
+      --dereference --verbose)\n\nif [ -b \"$PVC_DEST\" ]; then\n\tPVC_SOURCE_MAJ_MIN=$(stat
+      --format '%t%T' $PVC_SOURCE)\n\tPVC_DEST_MAJ_MIN=$(stat --format '%t%T' $PVC_DEST)\n\tif
+      [[ \"$PVC_SOURCE_MAJ_MIN\" == \"$PVC_DEST_MAJ_MIN\" ]]; then\n\t\techo \"PVC
+      $PVC_DEST already exists and has the same major and minor as $PVC_SOURCE: \"$PVC_SOURCE_MAJ_MIN\"\"\n\t\texit
+      0\n\telse\n\t\techo \"PVC's source major/minor numbers changed\"\n\t\tCP_ARGS+=(--remove-destination)\n\tfi\nfi\n\ncp
+      \"${CP_ARGS[@]}\" \"$PVC_SOURCE\" \"$PVC_DEST\"\n"
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: blkdevmapper
+    resources: {}
+    securityContext:
+      capabilities:
+        add:
+        - MKNOD
+      privileged: true
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeDevices:
+    - devicePath: /set1-data-0pnsb6
+      name: set1-data-0pnsb6
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - command:
+    - /bin/bash
+    - -c
+    - "\nset -xe\n\nPVC_SOURCE=/set1-metadata-0lbvj2\nPVC_DEST=/var/lib/ceph/osd/ceph-0/block.db-tmp\nCP_ARGS=(--archive
+      --dereference --verbose)\n\nif [ -b \"$PVC_DEST\" ]; then\n\tPVC_SOURCE_MAJ_MIN=$(stat
+      --format '%t%T' $PVC_SOURCE)\n\tPVC_DEST_MAJ_MIN=$(stat --format '%t%T' $PVC_DEST)\n\tif
+      [[ \"$PVC_SOURCE_MAJ_MIN\" == \"$PVC_DEST_MAJ_MIN\" ]]; then\n\t\techo \"PVC
+      $PVC_DEST already exists and has the same major and minor as $PVC_SOURCE: \"$PVC_SOURCE_MAJ_MIN\"\"\n\t\texit
+      0\n\telse\n\t\techo \"PVC's source major/minor numbers changed\"\n\t\tCP_ARGS+=(--remove-destination)\n\tfi\nfi\n\ncp
+      \"${CP_ARGS[@]}\" \"$PVC_SOURCE\" \"$PVC_DEST\"\n"
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: blkdevmapper-metadata
+    resources: {}
+    securityContext:
+      capabilities:
+        add:
+        - MKNOD
+      privileged: true
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeDevices:
+    - devicePath: /set1-metadata-0lbvj2
+      name: set1-metadata-0lbvj2
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - command:
+    - /bin/bash
+    - -c
+    - "\nset -xe\n\nPVC_SOURCE=/set1-wal-08zrth\nPVC_DEST=/var/lib/ceph/osd/ceph-0/block.wal-tmp\nCP_ARGS=(--archive
+      --dereference --verbose)\n\nif [ -b \"$PVC_DEST\" ]; then\n\tPVC_SOURCE_MAJ_MIN=$(stat
+      --format '%t%T' $PVC_SOURCE)\n\tPVC_DEST_MAJ_MIN=$(stat --format '%t%T' $PVC_DEST)\n\tif
+      [[ \"$PVC_SOURCE_MAJ_MIN\" == \"$PVC_DEST_MAJ_MIN\" ]]; then\n\t\techo \"PVC
+      $PVC_DEST already exists and has the same major and minor as $PVC_SOURCE: \"$PVC_SOURCE_MAJ_MIN\"\"\n\t\texit
+      0\n\telse\n\t\techo \"PVC's source major/minor numbers changed\"\n\t\tCP_ARGS+=(--remove-destination)\n\tfi\nfi\n\ncp
+      \"${CP_ARGS[@]}\" \"$PVC_SOURCE\" \"$PVC_DEST\"\n"
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: blkdevmapper-wal
+    resources: {}
+    securityContext:
+      capabilities:
+        add:
+        - MKNOD
+      privileged: true
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeDevices:
+    - devicePath: /set1-wal-08zrth
+      name: set1-wal-08zrth
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - command:
+    - /bin/bash
+    - -c
+    - "\nset -xe\n\nCEPH_FSID=f211f577-83c3-402f-adf6-da7fc6658b1c\nPVC_NAME=set1-data-0pnsb6\nKEY_FILE_PATH=/etc/ceph/luks_key\nBLOCK_PATH=/var/lib/ceph/osd/ceph-0/block-tmp\nDM_NAME=set1-data-0pnsb6-block-dmcrypt\nDM_PATH=/dev/mapper/set1-data-0pnsb6-block-dmcrypt\n\n#
+      Helps debugging\ndmsetup version\n\nfunction open_encrypted_block {\n\techo
+      \"Opening encrypted device $BLOCK_PATH at $DM_PATH\"\n\tcryptsetup luksOpen
+      --verbose --disable-keyring --allow-discards --key-file \"$KEY_FILE_PATH\" \"$BLOCK_PATH\"
+      \"$DM_NAME\"\n\trm -f \"$KEY_FILE_PATH\"\n}\n\n# This is done for upgraded clusters
+      that did not have the subsystem and label set by the prepare job\nfunction set_luks_subsystem_and_label
+      {\n\techo \"setting LUKS label and subsystem\"\n\tcryptsetup config $BLOCK_PATH
+      --subsystem ceph_fsid=\"$CEPH_FSID\" --label pvc_name=\"$PVC_NAME\"\n}\n\nif
+      [ -b \"$DM_PATH\" ]; then\n\techo \"Encrypted device $BLOCK_PATH already opened
+      at $DM_PATH\"\n\tfor field in $(dmsetup table \"$DM_NAME\"); do\n\t\tif [[ \"$field\"
+      =~ ^[0-9]+\\:[0-9]+ ]]; then\n\t\t\tunderlaying_block=\"/sys/dev/block/$field\"\n\t\t\tif
+      [ ! -d \"$underlaying_block\" ]; then\n\t\t\t\techo \"Underlying block device
+      $underlaying_block of crypt $DM_NAME disappeared!\"\n\t\t\t\techo \"Removing
+      stale dm device $DM_NAME\"\n\t\t\t\tdmsetup remove --force \"$DM_NAME\"\n\t\t\t\topen_encrypted_block\n\t\t\tfi\n\t\tfi\n\tdone\nelse\n\topen_encrypted_block\nfi\n\n#
+      Setting label and subsystem on LUKS1 is not supported and the command will fail\nif
+      cryptsetup luksDump $BLOCK_PATH|grep -qEs \"Version:.*2\"; then\n\tset_luks_subsystem_and_label\nelse\n\techo
+      \"LUKS version is not 2 so not setting label and subsystem\"\nfi\n"
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: encryption-open
+    resources: {}
+    securityContext:
+      privileged: true
+      runAsUser: 0
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /dev/mapper
+      name: dev-mapper
+    - mountPath: /etc/ceph
+      name: osd-encryption-key
+      readOnly: true
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - command:
+    - /bin/bash
+    - -c
+    - "\nset -xe\n\nCEPH_FSID=f211f577-83c3-402f-adf6-da7fc6658b1c\nPVC_NAME=set1-metadata-0lbvj2\nKEY_FILE_PATH=/etc/ceph/luks_key\nBLOCK_PATH=/var/lib/ceph/osd/ceph-0/block.db-tmp\nDM_NAME=set1-metadata-0lbvj2-db-dmcrypt\nDM_PATH=/dev/mapper/set1-metadata-0lbvj2-db-dmcrypt\n\n#
+      Helps debugging\ndmsetup version\n\nfunction open_encrypted_block {\n\techo
+      \"Opening encrypted device $BLOCK_PATH at $DM_PATH\"\n\tcryptsetup luksOpen
+      --verbose --disable-keyring --allow-discards --key-file \"$KEY_FILE_PATH\" \"$BLOCK_PATH\"
+      \"$DM_NAME\"\n\trm -f \"$KEY_FILE_PATH\"\n}\n\n# This is done for upgraded clusters
+      that did not have the subsystem and label set by the prepare job\nfunction set_luks_subsystem_and_label
+      {\n\techo \"setting LUKS label and subsystem\"\n\tcryptsetup config $BLOCK_PATH
+      --subsystem ceph_fsid=\"$CEPH_FSID\" --label pvc_name=\"$PVC_NAME\"\n}\n\nif
+      [ -b \"$DM_PATH\" ]; then\n\techo \"Encrypted device $BLOCK_PATH already opened
+      at $DM_PATH\"\n\tfor field in $(dmsetup table \"$DM_NAME\"); do\n\t\tif [[ \"$field\"
+      =~ ^[0-9]+\\:[0-9]+ ]]; then\n\t\t\tunderlaying_block=\"/sys/dev/block/$field\"\n\t\t\tif
+      [ ! -d \"$underlaying_block\" ]; then\n\t\t\t\techo \"Underlying block device
+      $underlaying_block of crypt $DM_NAME disappeared!\"\n\t\t\t\techo \"Removing
+      stale dm device $DM_NAME\"\n\t\t\t\tdmsetup remove --force \"$DM_NAME\"\n\t\t\t\topen_encrypted_block\n\t\t\tfi\n\t\tfi\n\tdone\nelse\n\topen_encrypted_block\nfi\n\n#
+      Setting label and subsystem on LUKS1 is not supported and the command will fail\nif
+      cryptsetup luksDump $BLOCK_PATH|grep -qEs \"Version:.*2\"; then\n\tset_luks_subsystem_and_label\nelse\n\techo
+      \"LUKS version is not 2 so not setting label and subsystem\"\nfi\n"
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: encryption-open-metadata
+    resources: {}
+    securityContext:
+      privileged: true
+      runAsUser: 0
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /dev/mapper
+      name: dev-mapper
+    - mountPath: /etc/ceph
+      name: osd-encryption-key
+      readOnly: true
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - command:
+    - /bin/bash
+    - -c
+    - "\nset -xe\n\nCEPH_FSID=f211f577-83c3-402f-adf6-da7fc6658b1c\nPVC_NAME=set1-wal-08zrth\nKEY_FILE_PATH=/etc/ceph/luks_key\nBLOCK_PATH=/var/lib/ceph/osd/ceph-0/block.wal-tmp\nDM_NAME=set1-wal-08zrth-wal-dmcrypt\nDM_PATH=/dev/mapper/set1-wal-08zrth-wal-dmcrypt\n\n#
+      Helps debugging\ndmsetup version\n\nfunction open_encrypted_block {\n\techo
+      \"Opening encrypted device $BLOCK_PATH at $DM_PATH\"\n\tcryptsetup luksOpen
+      --verbose --disable-keyring --allow-discards --key-file \"$KEY_FILE_PATH\" \"$BLOCK_PATH\"
+      \"$DM_NAME\"\n\trm -f \"$KEY_FILE_PATH\"\n}\n\n# This is done for upgraded clusters
+      that did not have the subsystem and label set by the prepare job\nfunction set_luks_subsystem_and_label
+      {\n\techo \"setting LUKS label and subsystem\"\n\tcryptsetup config $BLOCK_PATH
+      --subsystem ceph_fsid=\"$CEPH_FSID\" --label pvc_name=\"$PVC_NAME\"\n}\n\nif
+      [ -b \"$DM_PATH\" ]; then\n\techo \"Encrypted device $BLOCK_PATH already opened
+      at $DM_PATH\"\n\tfor field in $(dmsetup table \"$DM_NAME\"); do\n\t\tif [[ \"$field\"
+      =~ ^[0-9]+\\:[0-9]+ ]]; then\n\t\t\tunderlaying_block=\"/sys/dev/block/$field\"\n\t\t\tif
+      [ ! -d \"$underlaying_block\" ]; then\n\t\t\t\techo \"Underlying block device
+      $underlaying_block of crypt $DM_NAME disappeared!\"\n\t\t\t\techo \"Removing
+      stale dm device $DM_NAME\"\n\t\t\t\tdmsetup remove --force \"$DM_NAME\"\n\t\t\t\topen_encrypted_block\n\t\t\tfi\n\t\tfi\n\tdone\nelse\n\topen_encrypted_block\nfi\n\n#
+      Setting label and subsystem on LUKS1 is not supported and the command will fail\nif
+      cryptsetup luksDump $BLOCK_PATH|grep -qEs \"Version:.*2\"; then\n\tset_luks_subsystem_and_label\nelse\n\techo
+      \"LUKS version is not 2 so not setting label and subsystem\"\nfi\n"
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: encryption-open-wal
+    resources: {}
+    securityContext:
+      privileged: true
+      runAsUser: 0
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /dev/mapper
+      name: dev-mapper
+    - mountPath: /etc/ceph
+      name: osd-encryption-key
+      readOnly: true
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - command:
+    - /bin/bash
+    - -c
+    - "\nset -xe\n\nPVC_SOURCE=/dev/mapper/set1-data-0pnsb6-block-dmcrypt\nPVC_DEST=/var/lib/ceph/osd/ceph-0/block\nCP_ARGS=(--archive
+      --dereference --verbose)\n\nif [ -b \"$PVC_DEST\" ]; then\n\tPVC_SOURCE_MAJ_MIN=$(stat
+      --format '%t%T' $PVC_SOURCE)\n\tPVC_DEST_MAJ_MIN=$(stat --format '%t%T' $PVC_DEST)\n\tif
+      [[ \"$PVC_SOURCE_MAJ_MIN\" == \"$PVC_DEST_MAJ_MIN\" ]]; then\n\t\techo \"PVC
+      $PVC_DEST already exists and has the same major and minor as $PVC_SOURCE: \"$PVC_SOURCE_MAJ_MIN\"\"\n\t\texit
+      0\n\telse\n\t\techo \"PVC's source major/minor numbers changed\"\n\t\tCP_ARGS+=(--remove-destination)\n\tfi\nfi\n\ncp
+      \"${CP_ARGS[@]}\" \"$PVC_SOURCE\" \"$PVC_DEST\"\n"
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: blkdevmapper-encryption
+    resources: {}
+    securityContext:
+      capabilities:
+        add:
+        - MKNOD
+      privileged: true
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /dev/mapper
+      name: dev-mapper
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - command:
+    - /bin/bash
+    - -c
+    - "\nset -xe\n\nPVC_SOURCE=/dev/mapper/set1-metadata-0lbvj2-db-dmcrypt\nPVC_DEST=/var/lib/ceph/osd/ceph-0/block.db\nCP_ARGS=(--archive
+      --dereference --verbose)\n\nif [ -b \"$PVC_DEST\" ]; then\n\tPVC_SOURCE_MAJ_MIN=$(stat
+      --format '%t%T' $PVC_SOURCE)\n\tPVC_DEST_MAJ_MIN=$(stat --format '%t%T' $PVC_DEST)\n\tif
+      [[ \"$PVC_SOURCE_MAJ_MIN\" == \"$PVC_DEST_MAJ_MIN\" ]]; then\n\t\techo \"PVC
+      $PVC_DEST already exists and has the same major and minor as $PVC_SOURCE: \"$PVC_SOURCE_MAJ_MIN\"\"\n\t\texit
+      0\n\telse\n\t\techo \"PVC's source major/minor numbers changed\"\n\t\tCP_ARGS+=(--remove-destination)\n\tfi\nfi\n\ncp
+      \"${CP_ARGS[@]}\" \"$PVC_SOURCE\" \"$PVC_DEST\"\n"
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: blkdevmapper-metadata-encryption
+    resources: {}
+    securityContext:
+      capabilities:
+        add:
+        - MKNOD
+      privileged: true
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /dev/mapper
+      name: dev-mapper
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - command:
+    - /bin/bash
+    - -c
+    - "\nset -xe\n\nPVC_SOURCE=/dev/mapper/set1-wal-08zrth-wal-dmcrypt\nPVC_DEST=/var/lib/ceph/osd/ceph-0/block.wal\nCP_ARGS=(--archive
+      --dereference --verbose)\n\nif [ -b \"$PVC_DEST\" ]; then\n\tPVC_SOURCE_MAJ_MIN=$(stat
+      --format '%t%T' $PVC_SOURCE)\n\tPVC_DEST_MAJ_MIN=$(stat --format '%t%T' $PVC_DEST)\n\tif
+      [[ \"$PVC_SOURCE_MAJ_MIN\" == \"$PVC_DEST_MAJ_MIN\" ]]; then\n\t\techo \"PVC
+      $PVC_DEST already exists and has the same major and minor as $PVC_SOURCE: \"$PVC_SOURCE_MAJ_MIN\"\"\n\t\texit
+      0\n\telse\n\t\techo \"PVC's source major/minor numbers changed\"\n\t\tCP_ARGS+=(--remove-destination)\n\tfi\nfi\n\ncp
+      \"${CP_ARGS[@]}\" \"$PVC_SOURCE\" \"$PVC_DEST\"\n"
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: blkdevmapper-wal-encryption
+    resources: {}
+    securityContext:
+      capabilities:
+        add:
+        - MKNOD
+      privileged: true
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /dev/mapper
+      name: dev-mapper
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - args:
+    - --verbose
+    - status
+    - set1-data-0pnsb6-block-dmcrypt
+    command:
+    - cryptsetup
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: encrypted-block-status
+    resources: {}
+    securityContext:
+      privileged: true
+      runAsUser: 0
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - args:
+    - --verbose
+    - resize
+    - set1-data-0pnsb6-block-dmcrypt
+    command:
+    - cryptsetup
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: expand-encrypted-bluefs
+    resources: {}
+    securityContext:
+      privileged: true
+      runAsUser: 0
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /dev/mapper
+      name: dev-mapper
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - args:
+    - prime-osd-dir
+    - --dev
+    - /var/lib/ceph/osd/ceph-0/block
+    - --path
+    - /var/lib/ceph/osd/ceph-0
+    - --no-mon-config
+    command:
+    - ceph-bluestore-tool
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: activate
+    resources: {}
+    securityContext:
+      privileged: true
+      runAsUser: 0
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeDevices:
+    - devicePath: /var/lib/ceph/osd/ceph-0/block
+      name: set1-data-0pnsb6
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - args:
+    - bluefs-bdev-expand
+    - --path
+    - /var/lib/ceph/osd/ceph-0
+    command:
+    - ceph-bluestore-tool
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: expand-bluefs
+    resources: {}
+    securityContext:
+      privileged: true
+      runAsUser: 0
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  - args:
+    - --verbose
+    - --recursive
+    - ceph:ceph
+    - /var/log/ceph
+    - /var/lib/ceph/crash
+    - /run/ceph
+    - /var/lib/ceph/osd/ceph-0
+    command:
+    - chown
+    image: quay.io/ceph/ceph:v17.2.2
+    imagePullPolicy: IfNotPresent
+    name: chown-container-data-dir
+    resources: {}
+    securityContext:
+      privileged: true
+      readOnlyRootFilesystem: false
+      runAsUser: 0
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/lib/rook
+      name: rook-data
+    - mountPath: /etc/ceph
+      name: rook-config-override
+      readOnly: true
+    - mountPath: /run/ceph
+      name: ceph-daemons-sock-dir
+    - mountPath: /var/log/ceph
+      name: rook-ceph-log
+    - mountPath: /var/lib/ceph/crash
+      name: rook-ceph-crash
+    - mountPath: /run/udev
+      name: run-udev
+    - mountPath: /dev/mapper
+      name: dev-mapper
+    - mountPath: /var/lib/ceph/osd/ceph-0
+      name: set1-data-0pnsb6-bridge
+      subPath: ceph-0
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-th57f
+      readOnly: true
+  nodeName: ip-10-0-188-201.ec2.internal
+  preemptionPolicy: PreemptLowerPriority
+  priority: 2000001000
+  priorityClassName: system-node-critical
+  restartPolicy: Always
+  schedulerName: default-scheduler
+  securityContext:
+    fsGroup: 1000660000
+    seLinuxOptions:
+      level: s0:c26,c5
+  serviceAccount: rook-ceph-osd
+  serviceAccountName: rook-ceph-osd
+  shareProcessNamespace: true
+  terminationGracePeriodSeconds: 30
+  tolerations:
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+    tolerationSeconds: 5
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+    tolerationSeconds: 300
+  topologySpreadConstraints:
+  - labelSelector:
+      matchExpressions:
+      - key: app
+        operator: In
+        values:
+        - rook-ceph-osd
+    maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+  volumes:
+  - emptyDir: {}
+    name: rook-data
+  - name: rook-config-override
+    projected:
+      defaultMode: 420
+      sources:
+      - configMap:
+          items:
+          - key: config
+            mode: 292
+            path: ceph.conf
+          name: rook-config-override
+  - emptyDir: {}
+    name: ceph-daemons-sock-dir
+  - hostPath:
+      path: /var/lib/rook/rook-ceph/log
+      type: ""
+    name: rook-ceph-log
+  - hostPath:
+      path: /var/lib/rook/rook-ceph/crash
+      type: ""
+    name: rook-ceph-crash
+  - name: set1-data-0pnsb6
+    persistentVolumeClaim:
+      claimName: set1-data-0pnsb6
+  - hostPath:
+      path: /var/lib/rook/rook-ceph/set1-data-0pnsb6
+      type: DirectoryOrCreate
+    name: set1-data-0pnsb6-bridge
+  - name: set1-metadata-0lbvj2
+    persistentVolumeClaim:
+      claimName: set1-metadata-0lbvj2
+  - hostPath:
+      path: /var/lib/rook/rook-ceph/set1-metadata-0lbvj2
+      type: DirectoryOrCreate
+    name: set1-metadata-0lbvj2-bridge
+  - name: set1-wal-08zrth
+    persistentVolumeClaim:
+      claimName: set1-wal-08zrth
+  - hostPath:
+      path: /var/lib/rook/rook-ceph/set1-wal-08zrth
+      type: DirectoryOrCreate
+    name: set1-wal-08zrth-bridge
+  - name: osd-encryption-key
+    secret:
+      defaultMode: 256
+      items:
+      - key: dmcrypt-key
+        path: luks_key
+      secretName: rook-ceph-osd-encryption-key-set1-data-0pnsb6
+  - hostPath:
+      path: /run/udev
+      type: ""
+    name: run-udev
+  - hostPath:
+      path: /dev/mapper
+      type: ""
+    name: dev-mapper
+  - name: kube-api-access-th57f
+    projected:
+      defaultMode: 420
+      sources:
+      - serviceAccountToken:
+          expirationSeconds: 3607
+          path: token
+      - configMap:
+          items:
+          - key: ca.crt
+            path: ca.crt
+          name: kube-root-ca.crt
+      - downwardAPI:
+          items:
+          - fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+            path: namespace
+      - configMap:
+          items:
+          - key: service-ca.crt
+            path: service-ca.crt
+          name: openshift-service-ca.crt
+status:
+  conditions:
+  - lastProbeTime: null
+    lastTransitionTime: "2023-02-21T12:24:28Z"
+    status: "True"
+    type: Initialized
+  - lastProbeTime: null
+    lastTransitionTime: "2023-02-21T12:24:44Z"
+    status: "True"
+    type: Ready
+  - lastProbeTime: null
+    lastTransitionTime: "2023-02-21T12:24:44Z"
+    status: "True"
+    type: ContainersReady
+  - lastProbeTime: null
+    lastTransitionTime: "2023-02-21T12:24:04Z"
+    status: "True"
+    type: PodScheduled
+  containerStatuses:
+  - containerID: cri-o://c1127f2ed8a67a4832df6e4d0bfd4da3a20abb3dc37bf8056c70740d19e612af
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: log-collector
+    ready: true
+    restartCount: 0
+    started: true
+    state:
+      running:
+        startedAt: "2023-02-21T12:24:28Z"
+  - containerID: cri-o://ddc5ea71fb67626173f2ac4c379906a60e00c830632c44204e5da3e4c262a83a
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: osd
+    ready: true
+    restartCount: 0
+    started: true
+    state:
+      running:
+        startedAt: "2023-02-21T12:24:28Z"
+  hostIP: 10.0.188.201
+  initContainerStatuses:
+  - containerID: cri-o://84d65bea9eb4fc666a330d80595463fef9306c6f8c045b07f1282b72e6187d02
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: blkdevmapper
+    ready: true
+    restartCount: 0
+    state:
+      terminated:
+        containerID: cri-o://84d65bea9eb4fc666a330d80595463fef9306c6f8c045b07f1282b72e6187d02
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:06Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:06Z"
+  - containerID: cri-o://5db5a4cc95c62e94a4b7a3a9bbc7654add0f8f250cba9805d4e404661bffd987
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: blkdevmapper-metadata
+    ready: true
+    restartCount: 0
+    state:
+      terminated:
+        containerID: cri-o://5db5a4cc95c62e94a4b7a3a9bbc7654add0f8f250cba9805d4e404661bffd987
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:07Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:07Z"
+  - containerID: cri-o://8a05b3950b704fa9df7b7893a2c3d1cc71166ff96ce2d000a0a65ce0fc9a1e9f
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: blkdevmapper-wal
+    ready: true
+    restartCount: 0
+    state:
+      terminated:
+        containerID: cri-o://8a05b3950b704fa9df7b7893a2c3d1cc71166ff96ce2d000a0a65ce0fc9a1e9f
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:08Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:08Z"
+  - containerID: cri-o://c63b6b2f417165f616aa18671ab6c9454494c9a2d62a6b45c8987736b2019258
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: encryption-open
+    ready: true
+    restartCount: 1
+    state:
+      terminated:
+        containerID: cri-o://c63b6b2f417165f616aa18671ab6c9454494c9a2d62a6b45c8987736b2019258
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:12Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:12Z"
+  - containerID: cri-o://cce9429452f9d8db04e12bcc8fba87a35e5b437754f8a95c1c38e3799e599ca4
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: encryption-open-metadata
+    ready: true
+    restartCount: 1
+    state:
+      terminated:
+        containerID: cri-o://cce9429452f9d8db04e12bcc8fba87a35e5b437754f8a95c1c38e3799e599ca4
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:15Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:15Z"
+  - containerID: cri-o://880b5cc18a1a97496701b977f951b923acbba0e8d080cdf1a2c0c92841eb3654
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: encryption-open-wal
+    ready: true
+    restartCount: 1
+    state:
+      terminated:
+        containerID: cri-o://880b5cc18a1a97496701b977f951b923acbba0e8d080cdf1a2c0c92841eb3654
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:18Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:18Z"
+  - containerID: cri-o://4ffbf706c66535af9bd8f7ccaa87a19847ce932df9f3cd77e27dc30f1c471a7e
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: blkdevmapper-encryption
+    ready: true
+    restartCount: 0
+    state:
+      terminated:
+        containerID: cri-o://4ffbf706c66535af9bd8f7ccaa87a19847ce932df9f3cd77e27dc30f1c471a7e
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:19Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:19Z"
+  - containerID: cri-o://d74485921c72d72d7a7cfeb2ac02b7bdab4e98779898a3ee4db3a043b9bcf62e
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: blkdevmapper-metadata-encryption
+    ready: true
+    restartCount: 0
+    state:
+      terminated:
+        containerID: cri-o://d74485921c72d72d7a7cfeb2ac02b7bdab4e98779898a3ee4db3a043b9bcf62e
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:20Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:20Z"
+  - containerID: cri-o://92cfac333cb15df6285dfaa377c7496666dffcddb47101571eb252d115687976
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: blkdevmapper-wal-encryption
+    ready: true
+    restartCount: 0
+    state:
+      terminated:
+        containerID: cri-o://92cfac333cb15df6285dfaa377c7496666dffcddb47101571eb252d115687976
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:21Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:21Z"
+  - containerID: cri-o://a1d40bec89890ac6ad68b929697c25e2a635e643ba8df73aff7fcbba3b6c8f8d
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: encrypted-block-status
+    ready: true
+    restartCount: 0
+    state:
+      terminated:
+        containerID: cri-o://a1d40bec89890ac6ad68b929697c25e2a635e643ba8df73aff7fcbba3b6c8f8d
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:22Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:22Z"
+  - containerID: cri-o://89b613a3f118a2ca864b25a06de1feb4781c73f834235a84c2378ac2cc4f89bb
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: expand-encrypted-bluefs
+    ready: true
+    restartCount: 0
+    state:
+      terminated:
+        containerID: cri-o://89b613a3f118a2ca864b25a06de1feb4781c73f834235a84c2378ac2cc4f89bb
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:23Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:23Z"
+  - containerID: cri-o://8c03c6dccc66f38fc686990fe99446dcfac0fee2ebcbfcef79926c95d7882318
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: activate
+    ready: true
+    restartCount: 0
+    state:
+      terminated:
+        containerID: cri-o://8c03c6dccc66f38fc686990fe99446dcfac0fee2ebcbfcef79926c95d7882318
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:24Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:24Z"
+  - containerID: cri-o://7ee3f759053b096fd9e9f2cd73156e664a1f3ea7c471eb9704cec98cb75560d8
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: expand-bluefs
+    ready: true
+    restartCount: 0
+    state:
+      terminated:
+        containerID: cri-o://7ee3f759053b096fd9e9f2cd73156e664a1f3ea7c471eb9704cec98cb75560d8
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:27Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:25Z"
+  - containerID: cri-o://117b86f736f568a61eee4b6da18dfabd0c011aebd3ed4f756d06c2fe6de8c564
+    image: quay.io/ceph/ceph:v17.2.2
+    imageID: quay.io/ceph/ceph@sha256:1ed3a9d5b1ba45232047ed4b8ce7e265f2413f98eb27ab72c8acab428921d7cd
+    lastState: {}
+    name: chown-container-data-dir
+    ready: true
+    restartCount: 0
+    state:
+      terminated:
+        containerID: cri-o://117b86f736f568a61eee4b6da18dfabd0c011aebd3ed4f756d06c2fe6de8c564
+        exitCode: 0
+        finishedAt: "2023-02-21T12:24:27Z"
+        reason: Completed
+        startedAt: "2023-02-21T12:24:27Z"
+  phase: Running
+  podIP: 10.128.2.27
+  podIPs:
+  - ip: 10.128.2.27
+  qosClass: BestEffort
+  startTime: "2023-02-21T12:24:04Z"

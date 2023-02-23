@@ -731,6 +731,9 @@ func (c *Cluster) applyOSDAffinity(spec *v1.PodSpec, osd OSDInfo, osdProps osdPr
 	if spec.Affinity != nil {
 		spec.Affinity.PodAntiAffinity = nil
 	}
+	if spec.TopologySpreadConstraints != nil {
+		spec.TopologySpreadConstraints = nil
+	}
 }
 
 // To get rook inside the container, the config init container needs to copy "rook" binary into a volume.

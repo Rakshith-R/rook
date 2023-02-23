@@ -202,9 +202,67 @@ func AddEncryptionKey(context *clusterd.Context, disk, passphrase, newPassphrase
 	fmt.Println("executing: cryptsetup ", strings.Join(args, " "))
 	output, err := context.Executor.ExecuteCommandWithTimeout(luksOpenCmdTimeOut,
 		cryptsetupBinary, args...)
+	if err != nil && strings.Contains(err.Error(), fmt.Sprintf("Key slot %s is full", slot)) {
+		// try changing the key instead.
+		err := changeEncryptionKey(context, disk, passphrase, newPassphrase, slot)
+		if err == nil {
+			return nil
+		}
+		// if the error is that the key is not available, then remove the key slot and add it,
+		// since the key that can open the device must be in another slot.
+		if strings.Contains(err.Error(), "No key available with this passphrase.") {
+			err = RemoveEncryptionKeySlot(context, disk, newPassphrase, slot)
+			if err != nil {
+				return err
+			}
+			err = AddEncryptionKey(context, disk, passphrase, newPassphrase, slot)
+			if err != nil {
+				return err
+			}
+		}
+		return errors.Wrapf(err, "failed to change passphrase in slot %q for encrypted device %q",
+			slot, disk)
+	}
 	if err != nil {
 		return errors.Wrapf(err, "failed to add new passphrase to encrypted device %q: %q",
 			disk, output)
+	}
+
+	return nil
+}
+
+// changeEncryptionKey changes the key in the given slot of the target disk.
+func changeEncryptionKey(context *clusterd.Context, disk, passphrase, newPassphrase, slot string) error {
+	dirName, err := os.MkdirTemp("", "keys")
+	if err != nil {
+		return errors.Wrapf(err, "failed to create temporary directory")
+	}
+	defer os.RemoveAll(dirName)
+
+	passphraseFile, err := createTempKeyFile(dirName, passphrase)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create passphrase file")
+	}
+
+	newPassphraseFile, err := createTempKeyFile(dirName, newPassphrase)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create new passphrase file")
+	}
+
+	args := []string{
+		"--verbose",
+		fmt.Sprintf("--key-file=%s", passphraseFile),
+		fmt.Sprintf("--key-slot=%s", slot),
+		"luksChangeKey",
+		disk,
+		newPassphraseFile,
+	}
+	fmt.Println("executing: cryptsetup ", strings.Join(args, " "))
+	output, err := context.Executor.ExecuteCommandWithTimeout(luksOpenCmdTimeOut,
+		cryptsetupBinary, args...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to change passphrase in slot %q of encrypted device %q: %q",
+			slot, disk, output)
 	}
 
 	return nil
@@ -232,9 +290,9 @@ func RemoveEncryptionKeySlot(context *clusterd.Context, disk, passphrase, slot s
 	}
 	output, err := context.Executor.ExecuteCommandWithTimeout(luksOpenCmdTimeOut,
 		cryptsetupBinary, args...)
-	if err != nil {
-		return errors.Wrapf(err, "failed to add remove key slot of encrypted device %q: %q",
-			disk, output)
+	if err != nil && !strings.Contains(err.Error(), fmt.Sprintf("Keyslot %s is not active", slot)) {
+		return errors.Wrapf(err, "failed to remove key slot %q of encrypted device %q: %q",
+			slot, disk, output)
 	}
 
 	return nil
