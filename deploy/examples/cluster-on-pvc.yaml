@@ -185,6 +185,13 @@ spec:
     pgHealthCheckTimeout: 0
   # security oriented settings
   # security:
+  # Settings to enable key rotation for KEK(Key Encryption Key).
+  # Currently, this is supported only for the default encryption type,
+  # using kubernetes secrets.
+  #   keyRotation:
+  #     enabled: true
+  #     # schedule defines the cron schedule for key rotation.The default value is `@weekly`
+  #     schedule: "@monthly"
   # To enable the KMS configuration properly don't forget to uncomment the Secret at the end of the file
   #   kms:
   #     # name of the config map containing all the kms connection details
