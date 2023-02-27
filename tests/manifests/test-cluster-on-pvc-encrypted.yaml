@@ -21,6 +21,10 @@ spec:
     hostNetwork: false
   crashCollector:
     disable: true
+  security:
+    keyRotation:
+      enabled: true
+      schedule: "*/5 * * * *"
   storage:
     storageClassDeviceSets:
       - name: set1

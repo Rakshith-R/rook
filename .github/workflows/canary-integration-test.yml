@@ -682,6 +682,9 @@ jobs:
           kubectl -n rook-ceph get secrets
           sudo lsblk
 
+      - name: wait and verify key rotation
+        run: tests/scripts/github-action-helper.sh verify_key_rotation
+
       - name: test osd deployment removal and re-hydration
         run: |
           kubectl -n rook-ceph delete deploy/rook-ceph-osd-0
@@ -802,6 +805,9 @@ jobs:
           tests/scripts/github-action-helper.sh wait_for_ceph_to_be_ready osd 1
           kubectl -n rook-ceph get pods
           kubectl -n rook-ceph get secrets
+
+      - name: wait and verify key rotation
+        run: tests/scripts/github-action-helper.sh verify_key_rotation
 
       - name: collect common logs
         if: always()
