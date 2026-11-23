@@ -19,6 +19,8 @@ package pool
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -438,6 +440,32 @@ func TestValidateWriteAffinity(t *testing.T) {
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectedErr)
 		})
+	}
+}
+
+func TestCountCrushBucketsSharedHost(t *testing.T) {
+	// host h1 is linked under rack r1 of zone a and under rack r2 of zone b
+	buckets := []string{
+		`{"id": -1, "name": "a", "type_name": "zone", "items": [{"id": -10}, {"id": -11}]}`,
+		`{"id": -2, "name": "b", "type_name": "zone", "items": [{"id": -12}]}`,
+		`{"id": -10, "name": "r1", "type_name": "rack", "items": [{"id": -20}]}`,
+		`{"id": -11, "name": "r3", "type_name": "rack", "items": [{"id": -21}]}`,
+		`{"id": -12, "name": "r2", "type_name": "rack", "items": [{"id": -20}]}`,
+		`{"id": -20, "name": "h1", "type_name": "host", "items": [{"id": 0}]}`,
+		`{"id": -21, "name": "h2", "type_name": "host", "items": [{"id": 1}]}`,
+	}
+	reversed := slices.Clone(buckets)
+	slices.Reverse(reversed)
+
+	for _, order := range [][]string{buckets, reversed} {
+		var crush cephclient.CrushMap
+		crushJSON := `{"devices": [{"id": 0, "class": "ssd"}, {"id": 1, "class": "ssd"}], "buckets": [` + strings.Join(order, ",") + `]}`
+		assert.NoError(t, json.Unmarshal([]byte(crushJSON), &crush))
+		parents := crushParents(crush)
+		assert.Equal(t, 2, countCrushBuckets(crush, parents, crushSubtree(crush, "a"), "rack", "ssd"))
+		assert.Equal(t, 1, countCrushBuckets(crush, parents, crushSubtree(crush, "b"), "rack", "ssd"))
+		assert.Equal(t, 2, countCrushBuckets(crush, parents, crushSubtree(crush, "a"), "host", ""))
+		assert.Equal(t, 2, countCrushBuckets(crush, parents, crushSubtree(crush, "a"), "osd", "ssd"))
 	}
 }
 

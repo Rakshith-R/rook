@@ -375,7 +375,7 @@ func crushSubtree(crush cephclient.CrushMap, name string) map[int]bool {
 
 // countCrushBuckets returns the number of buckets of the given type in the subtree that hold OSDs of the device
 // class, or any OSDs if deviceClass is empty. A type of "osd" counts the OSDs.
-func countCrushBuckets(crush cephclient.CrushMap, parents map[int]*cephclient.CrushBucket, subtree map[int]bool, typeName, deviceClass string) int {
+func countCrushBuckets(crush cephclient.CrushMap, parents map[int][]*cephclient.CrushBucket, subtree map[int]bool, typeName, deviceClass string) int {
 	found := map[int]bool{}
 	for _, device := range crush.Devices {
 		if !subtree[device.ID] || (deviceClass != "" && device.Class != deviceClass) {
@@ -385,27 +385,39 @@ func countCrushBuckets(crush cephclient.CrushMap, parents map[int]*cephclient.Cr
 			found[device.ID] = true
 			continue
 		}
-		// the closest ancestor of the type holds the device
-		for bucket := parents[device.ID]; bucket != nil && subtree[bucket.ID]; bucket = parents[bucket.ID] {
-			if bucket.TypeName == typeName {
-				found[bucket.ID] = true
-				break
+		// A bucket can be linked under several parents, follow every path inside the subtree up to the closest
+		// ancestor of the type
+		visited := map[int]bool{}
+		queue := []int{device.ID}
+		for len(queue) > 0 {
+			id := queue[0]
+			queue = queue[1:]
+			for _, bucket := range parents[id] {
+				if !subtree[bucket.ID] || visited[bucket.ID] {
+					continue
+				}
+				visited[bucket.ID] = true
+				if bucket.TypeName == typeName {
+					found[bucket.ID] = true
+					continue
+				}
+				queue = append(queue, bucket.ID)
 			}
 		}
 	}
 	return len(found)
 }
 
-// crushParents maps the ID of every bucket and device to its parent bucket
-func crushParents(crush cephclient.CrushMap) map[int]*cephclient.CrushBucket {
-	parents := map[int]*cephclient.CrushBucket{}
+// crushParents maps the ID of every bucket and device to its parent buckets
+func crushParents(crush cephclient.CrushMap) map[int][]*cephclient.CrushBucket {
+	parents := map[int][]*cephclient.CrushBucket{}
 	for i := range crush.Buckets {
 		// skip the shadow buckets of the device classes, which hold the same devices
 		if strings.Contains(crush.Buckets[i].Name, "~") {
 			continue
 		}
 		for _, item := range crush.Buckets[i].Items {
-			parents[item.ID] = &crush.Buckets[i]
+			parents[item.ID] = append(parents[item.ID], &crush.Buckets[i])
 		}
 	}
 	return parents
