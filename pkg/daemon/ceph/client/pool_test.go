@@ -597,6 +597,9 @@ func testCreateStretchCrushRule(t *testing.T, alreadyExists bool) {
 	executor.MockExecuteCommandWithOutput = func(command string, args ...string) (string, error) {
 		logger.Infof("Command: %s %v", command, args)
 		if args[0] == "osd" {
+			if args[1] == "dump" {
+				return `{"crush_version": 1}`, nil
+			}
 			if args[1] == "getcrushmap" {
 				return "", nil
 			}
@@ -728,6 +731,9 @@ func testCreateHybridCrushRule(t *testing.T, alreadyExists bool) {
 	executor.MockExecuteCommandWithOutput = func(command string, args ...string) (string, error) {
 		logger.Infof("Command: %s %v", command, args)
 		if args[0] == "osd" {
+			if args[1] == "dump" {
+				return `{"crush_version": 1}`, nil
+			}
 			if args[1] == "getcrushmap" {
 				return "", nil
 			}
@@ -775,4 +781,353 @@ func testCreateHybridCrushRule(t *testing.T, alreadyExists bool) {
 func hasCrushtool() bool {
 	_, err := exec.LookPath("crushtool")
 	return err == nil
+}
+
+func TestBuildWriteAffinityCrushRule(t *testing.T) {
+	clusterSpec := &cephv1.ClusterSpec{}
+	pool := cephv1.NamedPoolSpec{
+		Name: "mypool",
+		PoolSpec: cephv1.PoolSpec{
+			FailureDomain: "zone",
+			Replicated:    cephv1.ReplicatedSpec{Size: 3, WriteAffinity: &cephv1.WriteAffinitySpec{FailureDomains: []string{"us-east-1a", "us.east.1b", "us-east-1c"}}},
+		},
+	}
+	crushMap := CrushMap{Rules: []ruleSpec{{ID: 0}, {ID: 1}}}
+
+	expected := `
+rule mypool_wa_x {
+        id 2
+        type replicated
+        step take us-east-1a
+        step chooseleaf firstn 1 type host
+        step emit
+        step take us-east-1b
+        step chooseleaf firstn 1 type host
+        step emit
+        step take us-east-1c
+        step chooseleaf firstn 1 type host
+        step emit
+}
+`
+	assert.Equal(t, expected, buildWriteAffinityCrushRule(crushMap, "mypool_wa_x", buildWriteAffinityCrushSteps(clusterSpec, pool.PoolSpec)))
+
+	name := WriteAffinityCrushRuleName(clusterSpec, pool)
+	assert.Regexp(t, `^mypool_wa_[0-9a-f]{8}$`, name)
+	assert.True(t, isWriteAffinityCrushRule("mypool", name))
+	assert.Equal(t, name, WriteAffinityCrushRuleName(clusterSpec, pool), "rule name must be stable")
+
+	t.Run("reordering changes the rule", func(t *testing.T) {
+		p := *pool.DeepCopy()
+		p.Replicated.WriteAffinity.FailureDomains = []string{"us-east-1b", "us-east-1a", "us-east-1c"}
+		assert.NotEqual(t, name, WriteAffinityCrushRuleName(clusterSpec, p))
+	})
+
+	t.Run("device class, replicas and sub failure domain", func(t *testing.T) {
+		p := *pool.DeepCopy()
+		p.DeviceClass = "ssd"
+		p.Replicated.ReplicasPerFailureDomain = 2
+		p.Replicated.SubFailureDomain = "rack"
+		p.Replicated.WriteAffinity.FailureDomains = []string{"a", "b"}
+		assert.Equal(t, "        step take a class ssd\n        step chooseleaf firstn 2 type rack\n        step emit\n"+
+			"        step take b class ssd\n        step chooseleaf firstn 2 type rack\n        step emit\n", buildWriteAffinityCrushSteps(clusterSpec, p.PoolSpec))
+		assert.NotEqual(t, name, WriteAffinityCrushRuleName(clusterSpec, p))
+	})
+
+	t.Run("stretch cluster sub failure domain", func(t *testing.T) {
+		stretchSpec := &cephv1.ClusterSpec{Mon: cephv1.MonSpec{StretchCluster: &cephv1.StretchClusterSpec{
+			SubFailureDomain: "rack",
+			Zones:            []cephv1.MonZoneSpec{{Name: "a"}, {Name: "b"}, {Name: "c", Arbiter: true}},
+		}}}
+		assert.Equal(t, "rack", WriteAffinitySubFailureDomain(stretchSpec, pool.PoolSpec))
+		assert.Equal(t, "host", WriteAffinitySubFailureDomain(clusterSpec, pool.PoolSpec))
+	})
+}
+
+func TestIsWriteAffinityCrushRule(t *testing.T) {
+	assert.True(t, isWriteAffinityCrushRule("mypool", "mypool_wa_0123abcd"))
+	assert.False(t, isWriteAffinityCrushRule("mypool", "mypool"))
+	assert.False(t, isWriteAffinityCrushRule("mypool", "mypool_zone"))
+	assert.False(t, isWriteAffinityCrushRule("mypool", "mypool_wa_0123abcdef"))
+	assert.False(t, isWriteAffinityCrushRule("mypool", "mypool_wa_xyzxyzxy"))
+	assert.False(t, isWriteAffinityCrushRule("my", "mypool_wa_0123abcd"))
+	assert.False(t, isWriteAffinityCrushRule("mypool", "mypool_wa_b_wa_0123abcd"))
+}
+
+// writeAffinityTestExecutor mocks the ceph commands of a replicated pool reconcile and records the commands
+// that change the cluster
+type writeAffinityTestExecutor struct {
+	currentRule  string
+	size         int
+	stretchMode  bool
+	sizeSet      []string
+	order        []string
+	poolCreated  []string
+	ruleSet      []string
+	rulesRemoved []string
+	rulesCreated []string
+	crushMapSet  int
+	// crushMapChanges is the number of crush map injections that fail with a changed crush version
+	crushMapChanges int
+}
+
+func (e *writeAffinityTestExecutor) context(t *testing.T) *clusterd.Context {
+	executor := &exectest.MockExecutor{}
+	executor.MockExecuteCommandWithOutput = func(command string, args ...string) (string, error) {
+		logger.Infof("Command: %s %v", command, args)
+		if command == "crushtool" {
+			return "", nil
+		}
+		switch {
+		case args[0] == "mon" && args[1] == "dump":
+			return fmt.Sprintf(`{"stretch_mode": %t}`, e.stretchMode), nil
+		case args[0] == "osd" && args[1] == "dump":
+			return fmt.Sprintf(`{"crush_version": %d}`, 5+e.crushMapSet), nil
+		case args[1] == "getcrushmap":
+			return "", nil
+		case args[1] == "setcrushmap":
+			if args[4] != fmt.Sprint(5+e.crushMapSet) {
+				return "", errors.Errorf("unexpected prior_version %q", args[4])
+			}
+			if e.crushMapChanges > 0 {
+				e.crushMapChanges--
+				return "", errors.New("Error EPERM: prior_version 5 != crush version 6")
+			}
+			e.crushMapSet++
+			return "", nil
+		case args[1] == "crush" && args[2] == "dump":
+			return testCrushMap, nil
+		case args[1] == "crush" && args[2] == "rule" && args[3] == "rm":
+			e.rulesRemoved = append(e.rulesRemoved, args[4])
+			return "", nil
+		case args[1] == "crush" && args[2] == "rule" && args[3] == "create-replicated":
+			e.rulesCreated = append(e.rulesCreated, args[4])
+			return "", nil
+		case args[1] == "crush" && args[2] == "rule" && args[3] == "dump":
+			if isWriteAffinityCrushRule("mypool", args[4]) {
+				return `{"steps": [{"op":"take","item_name":"a"},{"op":"chooseleaf_firstn","type":"host"},{"op":"emit"}]}`, nil
+			}
+			return `{"steps": [{"op":"take","item_name":"default"},{"op":"chooseleaf_firstn","type":"zone"},{"op":"emit"}]}`, nil
+		case args[1] == "pool" && args[2] == "get":
+			if e.currentRule == "" {
+				return "", errors.New("pool does not exist")
+			}
+			size := e.size
+			if size == 0 {
+				size = 3
+			}
+			return fmt.Sprintf(`{"pool":"mypool","pool_id":1,"size":%d,"crush_rule":%q}`, size, e.currentRule), nil
+		case args[1] == "pool" && args[2] == "create":
+			e.poolCreated = append(e.poolCreated, args[6])
+			return "", nil
+		case args[1] == "pool" && args[2] == "set" && args[4] == "crush_rule":
+			e.ruleSet = append(e.ruleSet, args[5])
+			e.order = append(e.order, "crush_rule")
+			e.currentRule = args[5]
+			return "", nil
+		case args[1] == "pool" && args[2] == "set" && args[4] == "size":
+			e.sizeSet = append(e.sizeSet, args[5])
+			e.order = append(e.order, "size")
+			return "", nil
+		case args[1] == "pool" && args[2] == "set":
+			return "", nil
+		case args[1] == "pool" && args[2] == "application":
+			if args[3] == "get" {
+				return emptyApplicationName, nil
+			}
+			return "", nil
+		}
+		return "", errors.Errorf("unexpected command %s %q", command, args)
+	}
+	return &clusterd.Context{Executor: executor}
+}
+
+func TestCreateWriteAffinityPool(t *testing.T) {
+	enable := true
+	newPool := func() cephv1.NamedPoolSpec {
+		return cephv1.NamedPoolSpec{
+			Name: "mypool",
+			PoolSpec: cephv1.PoolSpec{
+				FailureDomain: "zone",
+				Replicated:    cephv1.ReplicatedSpec{Size: 3, WriteAffinity: &cephv1.WriteAffinitySpec{FailureDomains: []string{"a", "b", "c"}}},
+			},
+		}
+	}
+	clusterSpec := &cephv1.ClusterSpec{}
+	stretchSpec := &cephv1.ClusterSpec{Mon: cephv1.MonSpec{StretchCluster: &cephv1.StretchClusterSpec{
+		Zones: []cephv1.MonZoneSpec{{Name: "a"}, {Name: "b"}, {Name: "c", Arbiter: true}},
+	}}}
+	desiredRule := WriteAffinityCrushRuleName(clusterSpec, newPool())
+
+	t.Run("new pool", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{}
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, newPool(), DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{desiredRule}, e.poolCreated)
+		assert.Equal(t, 1, e.crushMapSet)
+		assert.Empty(t, e.ruleSet)
+		assert.Empty(t, e.rulesCreated)
+	})
+
+	t.Run("new pool retries when the crush map changed", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{crushMapChanges: 1}
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, newPool(), DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, e.crushMapSet)
+		assert.Equal(t, []string{desiredRule}, e.poolCreated)
+
+		e = &writeAffinityTestExecutor{crushMapChanges: crushMapUpdateAttempts}
+		err = createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, newPool(), DefaultPGCount)
+		assert.ErrorIs(t, err, errCrushMapChanged)
+		assert.Empty(t, e.poolCreated)
+	})
+
+	t.Run("existing pool with the desired rule", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: desiredRule}
+		p := newPool()
+		p.EnableCrushUpdates = &enable
+		p.DeviceClass = ""
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Empty(t, e.poolCreated)
+		assert.Empty(t, e.ruleSet)
+		assert.Empty(t, e.rulesRemoved)
+	})
+
+	t.Run("existing pool without enableCrushUpdates keeps its rule", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool"}
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, newPool(), DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Empty(t, e.ruleSet)
+		assert.Empty(t, e.rulesRemoved)
+		assert.Empty(t, e.rulesCreated)
+		assert.Equal(t, 0, e.crushMapSet, "the rule is only created when it can be applied")
+	})
+
+	t.Run("changed list without enableCrushUpdates does not create the rule", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd"}
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, newPool(), DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, e.crushMapSet)
+		assert.Empty(t, e.ruleSet)
+		assert.Empty(t, e.rulesRemoved)
+	})
+
+	t.Run("size change without enableCrushUpdates is rejected while the old rule is kept", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd"}
+		p := newPool()
+		p.Replicated = cephv1.ReplicatedSpec{Size: 4, WriteAffinity: &cephv1.WriteAffinitySpec{FailureDomains: []string{"a", "b", "c", "d"}}}
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.ErrorContains(t, err, "cannot change the size of pool")
+		assert.Empty(t, e.sizeSet)
+		assert.Empty(t, e.ruleSet)
+
+		// the size changes together with the rule when crush updates are enabled
+		p.EnableCrushUpdates = &enable
+		err = createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"4"}, e.sizeSet)
+		assert.Equal(t, []string{WriteAffinityCrushRuleName(clusterSpec, p)}, e.ruleSet)
+		assert.Equal(t, []string{"crush_rule", "size"}, e.order, "the wider rule is set before the size")
+	})
+
+	t.Run("size decrease sets the rule after the size", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd", size: 4}
+		p := newPool()
+		p.EnableCrushUpdates = &enable
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"size", "crush_rule"}, e.order)
+	})
+
+	t.Run("existing pool with enableCrushUpdates switches rule", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool"}
+		p := newPool()
+		p.EnableCrushUpdates = &enable
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{desiredRule}, e.ruleSet)
+		assert.Empty(t, e.rulesRemoved, "rules not created for write affinity are left to the crush rule cleanup")
+	})
+
+	t.Run("changed list removes the previous write affinity rule", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd"}
+		p := newPool()
+		p.EnableCrushUpdates = &enable
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{desiredRule}, e.ruleSet)
+		assert.Equal(t, []string{"mypool_wa_0123abcd"}, e.rulesRemoved)
+	})
+
+	t.Run("stretch cluster waits for stretch mode", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{}
+		p := newPool()
+		p.Replicated = cephv1.ReplicatedSpec{Size: 4, ReplicasPerFailureDomain: 2, WriteAffinity: &cephv1.WriteAffinitySpec{FailureDomains: []string{"a", "b"}}}
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), stretchSpec, p, DefaultPGCount)
+		assert.ErrorContains(t, err, "waiting for stretch mode to be enabled")
+		assert.Empty(t, e.poolCreated)
+
+		e.stretchMode = true
+		err = createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), stretchSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{WriteAffinityCrushRuleName(stretchSpec, p)}, e.poolCreated)
+	})
+
+	t.Run("removing writeAffinity in a stretch cluster restores the stretch rule", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd"}
+		p := newPool()
+		p.Replicated = cephv1.ReplicatedSpec{Size: 4}
+		p.EnableCrushUpdates = &enable
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), stretchSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{defaultStretchCrushRuleName}, e.ruleSet)
+		assert.Equal(t, []string{"mypool_wa_0123abcd"}, e.rulesRemoved)
+	})
+
+	t.Run("removing writeAffinity without enableCrushUpdates keeps the rule", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd"}
+		p := newPool()
+		p.Replicated = cephv1.ReplicatedSpec{Size: 4}
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), stretchSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Empty(t, e.ruleSet)
+		assert.Empty(t, e.rulesRemoved)
+	})
+
+	t.Run("removing writeAffinity with replicasPerFailureDomain recreates the two-step rule", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd"}
+		p := newPool()
+		p.Replicated = cephv1.ReplicatedSpec{Size: 4, ReplicasPerFailureDomain: 2}
+		p.EnableCrushUpdates = &enable
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"mypool", "mypool_wa_0123abcd"}, e.rulesRemoved)
+		assert.Equal(t, 1, e.crushMapSet)
+		assert.Equal(t, []string{"mypool"}, e.ruleSet)
+	})
+
+	t.Run("removing writeAffinity from a plain replicated pool", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd"}
+		p := newPool()
+		p.Replicated = cephv1.ReplicatedSpec{Size: 3}
+		p.EnableCrushUpdates = &enable
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"mypool_zone"}, e.rulesCreated)
+		assert.Equal(t, []string{"mypool_zone"}, e.ruleSet)
+		assert.Equal(t, []string{"mypool_zone", "mypool_wa_0123abcd"}, e.rulesRemoved, "the target rule is recreated")
+	})
+
+	t.Run("removing writeAffinity from a pool without failureDomain", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd"}
+		p := newPool()
+		p.FailureDomain = ""
+		p.Replicated = cephv1.ReplicatedSpec{Size: 3}
+		p.EnableCrushUpdates = &enable
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"mypool"}, e.rulesCreated)
+		assert.Equal(t, []string{"mypool"}, e.ruleSet)
+		assert.Equal(t, []string{"mypool", "mypool_wa_0123abcd"}, e.rulesRemoved)
+	})
 }

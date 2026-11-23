@@ -638,6 +638,67 @@ func TestCephBlockPoolController(t *testing.T) {
 	})
 }
 
+func TestWriteAffinityCrushRuleMismatch(t *testing.T) {
+	clusterInfo := cephclient.AdminTestClusterInfo("mycluster")
+	clusterSpec := &cephv1.ClusterSpec{}
+	pool := cephv1.NamedPoolSpec{
+		Name: "mypool",
+		PoolSpec: cephv1.PoolSpec{
+			FailureDomain: "zone",
+			Replicated: cephv1.ReplicatedSpec{
+				Size:          3,
+				WriteAffinity: &cephv1.WriteAffinitySpec{FailureDomains: []string{"a", "b", "c"}},
+			},
+		},
+	}
+	desiredRule := cephclient.WriteAffinityCrushRuleName(clusterSpec, pool)
+
+	crushRule := ""
+	executor := &exectest.MockExecutor{
+		MockExecuteCommandWithOutput: func(command string, args ...string) (string, error) {
+			if args[0] == "osd" && args[1] == "pool" && args[2] == "get" {
+				return fmt.Sprintf(`{"pool":%q,"crush_rule":%q}`, pool.Name, crushRule), nil
+			}
+			return "", errors.Errorf("unexpected ceph command %q", args)
+		},
+	}
+	context := &clusterd.Context{Executor: executor}
+
+	t.Run("non write affinity pool", func(t *testing.T) {
+		p := pool
+		p.Replicated.WriteAffinity = nil
+		crushRule = "mypool"
+		assert.Equal(t, "", writeAffinityCrushRuleMismatch(context, clusterInfo, clusterSpec, p))
+	})
+
+	t.Run("removed write affinity keeps the old rule", func(t *testing.T) {
+		p := pool
+		p.Replicated.WriteAffinity = nil
+		crushRule = desiredRule
+		msg := writeAffinityCrushRuleMismatch(context, clusterInfo, clusterSpec, p)
+		assert.Contains(t, msg, desiredRule)
+		assert.Contains(t, msg, "enableCrushUpdates")
+
+		// the rule is switched during the reconcile when crush updates are enabled
+		p.EnableCrushUpdates = &[]bool{true}[0]
+		assert.Equal(t, "", writeAffinityCrushRuleMismatch(context, clusterInfo, clusterSpec, p))
+	})
+
+	t.Run("matching crush rule", func(t *testing.T) {
+		crushRule = desiredRule
+		assert.Equal(t, "", writeAffinityCrushRuleMismatch(context, clusterInfo, clusterSpec, pool))
+	})
+
+	t.Run("mismatched crush rule", func(t *testing.T) {
+		crushRule = "mypool_zone"
+		msg := writeAffinityCrushRuleMismatch(context, clusterInfo, clusterSpec, pool)
+		assert.NotEmpty(t, msg)
+		assert.Contains(t, msg, "mypool_zone")
+		assert.Contains(t, msg, desiredRule)
+		assert.Contains(t, msg, "enableCrushUpdates")
+	})
+}
+
 func TestDeletionBlocked(t *testing.T) {
 	// A Pool resource with metadata and spec.
 	pool := &cephv1.CephBlockPool{

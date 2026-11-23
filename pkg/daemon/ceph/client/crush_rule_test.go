@@ -92,12 +92,19 @@ func TestInjectCRUSHMapMap(t *testing.T) {
 	executor.MockExecuteCommandWithOutput = func(command string, args ...string) (string, error) {
 		logger.Infof("Command: %s %v", command, args)
 		if args[0] == "osd" && args[1] == "setcrushmap" && args[2] == "--in-file" && args[3] == "/tmp/063990228.compiled" {
-			return "3", nil
+			if args[4] == "7" {
+				return "3", nil
+			}
+			if args[4] == "--connect-timeout=15" {
+				return "3", nil
+			}
 		}
 		return "", errors.Errorf("unexpected ceph command '%v'", args)
 	}
 
-	err := injectCRUSHMap(&clusterd.Context{Executor: executor}, AdminTestClusterInfo("mycluster"), "/tmp/063990228.compiled")
+	err := injectCRUSHMap(&clusterd.Context{Executor: executor}, AdminTestClusterInfo("mycluster"), "/tmp/063990228.compiled", 7)
+	assert.Nil(t, err)
+	err = injectCRUSHMap(&clusterd.Context{Executor: executor}, AdminTestClusterInfo("mycluster"), "/tmp/063990228.compiled", -1)
 	assert.Nil(t, err)
 }
 

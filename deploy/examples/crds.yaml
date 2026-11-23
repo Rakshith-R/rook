@@ -633,9 +633,36 @@ spec:
                       description: TargetSizeRatio gives a hint (%) to Ceph in terms of expected consumption of the total cluster capacity
                       minimum: 0
                       type: number
+                    writeAffinity:
+                      description: |-
+                        WriteAffinity places the replicas of the pool in an explicit, ordered list of CRUSH failure domains.
+                        The primary OSD of every PG is in the first failure domain of the list. Only supported for CephBlockPool.
+                      properties:
+                        failureDomains:
+                          description: |-
+                            FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
+                            must be of the type set in the pool failureDomain, for example the names of the zones. The first
+                            entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
+                            next entry of the list. Entries must be unique.
+                          items:
+                            maxLength: 63
+                            minLength: 1
+                            type: string
+                          maxItems: 16
+                          minItems: 2
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                        - failureDomains
+                      type: object
                   required:
                     - size
                   type: object
+                  x-kubernetes-validations:
+                    - message: writeAffinity and hybridStorage cannot be specified together
+                      rule: '!has(self.writeAffinity) || !has(self.hybridStorage)'
+                    - message: size must equal the number of writeAffinity failureDomains multiplied by replicasPerFailureDomain
+                      rule: '!has(self.writeAffinity) || self.size == size(self.writeAffinity.failureDomains) * (has(self.replicasPerFailureDomain) ? self.replicasPerFailureDomain : 1)'
                 statusCheck:
                   description: The mirroring statusCheck
                   properties:
@@ -8241,9 +8268,36 @@ spec:
                             description: TargetSizeRatio gives a hint (%) to Ceph in terms of expected consumption of the total cluster capacity
                             minimum: 0
                             type: number
+                          writeAffinity:
+                            description: |-
+                              WriteAffinity places the replicas of the pool in an explicit, ordered list of CRUSH failure domains.
+                              The primary OSD of every PG is in the first failure domain of the list. Only supported for CephBlockPool.
+                            properties:
+                              failureDomains:
+                                description: |-
+                                  FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
+                                  must be of the type set in the pool failureDomain, for example the names of the zones. The first
+                                  entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
+                                  next entry of the list. Entries must be unique.
+                                items:
+                                  maxLength: 63
+                                  minLength: 1
+                                  type: string
+                                maxItems: 16
+                                minItems: 2
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            required:
+                              - failureDomains
+                            type: object
                         required:
                           - size
                         type: object
+                        x-kubernetes-validations:
+                          - message: writeAffinity and hybridStorage cannot be specified together
+                            rule: '!has(self.writeAffinity) || !has(self.hybridStorage)'
+                          - message: size must equal the number of writeAffinity failureDomains multiplied by replicasPerFailureDomain
+                            rule: '!has(self.writeAffinity) || self.size == size(self.writeAffinity.failureDomains) * (has(self.replicasPerFailureDomain) ? self.replicasPerFailureDomain : 1)'
                       statusCheck:
                         description: The mirroring statusCheck
                         properties:
@@ -8470,9 +8524,36 @@ spec:
                           description: TargetSizeRatio gives a hint (%) to Ceph in terms of expected consumption of the total cluster capacity
                           minimum: 0
                           type: number
+                        writeAffinity:
+                          description: |-
+                            WriteAffinity places the replicas of the pool in an explicit, ordered list of CRUSH failure domains.
+                            The primary OSD of every PG is in the first failure domain of the list. Only supported for CephBlockPool.
+                          properties:
+                            failureDomains:
+                              description: |-
+                                FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
+                                must be of the type set in the pool failureDomain, for example the names of the zones. The first
+                                entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
+                                next entry of the list. Entries must be unique.
+                              items:
+                                maxLength: 63
+                                minLength: 1
+                                type: string
+                              maxItems: 16
+                              minItems: 2
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                            - failureDomains
+                          type: object
                       required:
                         - size
                       type: object
+                      x-kubernetes-validations:
+                        - message: writeAffinity and hybridStorage cannot be specified together
+                          rule: '!has(self.writeAffinity) || !has(self.hybridStorage)'
+                        - message: size must equal the number of writeAffinity failureDomains multiplied by replicasPerFailureDomain
+                          rule: '!has(self.writeAffinity) || self.size == size(self.writeAffinity.failureDomains) * (has(self.replicasPerFailureDomain) ? self.replicasPerFailureDomain : 1)'
                     statusCheck:
                       description: The mirroring statusCheck
                       properties:
@@ -13781,9 +13862,36 @@ spec:
                           description: TargetSizeRatio gives a hint (%) to Ceph in terms of expected consumption of the total cluster capacity
                           minimum: 0
                           type: number
+                        writeAffinity:
+                          description: |-
+                            WriteAffinity places the replicas of the pool in an explicit, ordered list of CRUSH failure domains.
+                            The primary OSD of every PG is in the first failure domain of the list. Only supported for CephBlockPool.
+                          properties:
+                            failureDomains:
+                              description: |-
+                                FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
+                                must be of the type set in the pool failureDomain, for example the names of the zones. The first
+                                entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
+                                next entry of the list. Entries must be unique.
+                              items:
+                                maxLength: 63
+                                minLength: 1
+                                type: string
+                              maxItems: 16
+                              minItems: 2
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                            - failureDomains
+                          type: object
                       required:
                         - size
                       type: object
+                      x-kubernetes-validations:
+                        - message: writeAffinity and hybridStorage cannot be specified together
+                          rule: '!has(self.writeAffinity) || !has(self.hybridStorage)'
+                        - message: size must equal the number of writeAffinity failureDomains multiplied by replicasPerFailureDomain
+                          rule: '!has(self.writeAffinity) || self.size == size(self.writeAffinity.failureDomains) * (has(self.replicasPerFailureDomain) ? self.replicasPerFailureDomain : 1)'
                     statusCheck:
                       description: The mirroring statusCheck
                       properties:
@@ -15535,9 +15643,36 @@ spec:
                           description: TargetSizeRatio gives a hint (%) to Ceph in terms of expected consumption of the total cluster capacity
                           minimum: 0
                           type: number
+                        writeAffinity:
+                          description: |-
+                            WriteAffinity places the replicas of the pool in an explicit, ordered list of CRUSH failure domains.
+                            The primary OSD of every PG is in the first failure domain of the list. Only supported for CephBlockPool.
+                          properties:
+                            failureDomains:
+                              description: |-
+                                FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
+                                must be of the type set in the pool failureDomain, for example the names of the zones. The first
+                                entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
+                                next entry of the list. Entries must be unique.
+                              items:
+                                maxLength: 63
+                                minLength: 1
+                                type: string
+                              maxItems: 16
+                              minItems: 2
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                            - failureDomains
+                          type: object
                       required:
                         - size
                       type: object
+                      x-kubernetes-validations:
+                        - message: writeAffinity and hybridStorage cannot be specified together
+                          rule: '!has(self.writeAffinity) || !has(self.hybridStorage)'
+                        - message: size must equal the number of writeAffinity failureDomains multiplied by replicasPerFailureDomain
+                          rule: '!has(self.writeAffinity) || self.size == size(self.writeAffinity.failureDomains) * (has(self.replicasPerFailureDomain) ? self.replicasPerFailureDomain : 1)'
                     statusCheck:
                       description: The mirroring statusCheck
                       properties:
@@ -16763,9 +16898,36 @@ spec:
                           description: TargetSizeRatio gives a hint (%) to Ceph in terms of expected consumption of the total cluster capacity
                           minimum: 0
                           type: number
+                        writeAffinity:
+                          description: |-
+                            WriteAffinity places the replicas of the pool in an explicit, ordered list of CRUSH failure domains.
+                            The primary OSD of every PG is in the first failure domain of the list. Only supported for CephBlockPool.
+                          properties:
+                            failureDomains:
+                              description: |-
+                                FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
+                                must be of the type set in the pool failureDomain, for example the names of the zones. The first
+                                entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
+                                next entry of the list. Entries must be unique.
+                              items:
+                                maxLength: 63
+                                minLength: 1
+                                type: string
+                              maxItems: 16
+                              minItems: 2
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                            - failureDomains
+                          type: object
                       required:
                         - size
                       type: object
+                      x-kubernetes-validations:
+                        - message: writeAffinity and hybridStorage cannot be specified together
+                          rule: '!has(self.writeAffinity) || !has(self.hybridStorage)'
+                        - message: size must equal the number of writeAffinity failureDomains multiplied by replicasPerFailureDomain
+                          rule: '!has(self.writeAffinity) || self.size == size(self.writeAffinity.failureDomains) * (has(self.replicasPerFailureDomain) ? self.replicasPerFailureDomain : 1)'
                     statusCheck:
                       description: The mirroring statusCheck
                       properties:
@@ -16987,9 +17149,36 @@ spec:
                           description: TargetSizeRatio gives a hint (%) to Ceph in terms of expected consumption of the total cluster capacity
                           minimum: 0
                           type: number
+                        writeAffinity:
+                          description: |-
+                            WriteAffinity places the replicas of the pool in an explicit, ordered list of CRUSH failure domains.
+                            The primary OSD of every PG is in the first failure domain of the list. Only supported for CephBlockPool.
+                          properties:
+                            failureDomains:
+                              description: |-
+                                FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
+                                must be of the type set in the pool failureDomain, for example the names of the zones. The first
+                                entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
+                                next entry of the list. Entries must be unique.
+                              items:
+                                maxLength: 63
+                                minLength: 1
+                                type: string
+                              maxItems: 16
+                              minItems: 2
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                            - failureDomains
+                          type: object
                       required:
                         - size
                       type: object
+                      x-kubernetes-validations:
+                        - message: writeAffinity and hybridStorage cannot be specified together
+                          rule: '!has(self.writeAffinity) || !has(self.hybridStorage)'
+                        - message: size must equal the number of writeAffinity failureDomains multiplied by replicasPerFailureDomain
+                          rule: '!has(self.writeAffinity) || self.size == size(self.writeAffinity.failureDomains) * (has(self.replicasPerFailureDomain) ? self.replicasPerFailureDomain : 1)'
                     statusCheck:
                       description: The mirroring statusCheck
                       properties:

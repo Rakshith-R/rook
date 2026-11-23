@@ -43,24 +43,27 @@ type CrushMap struct {
 		ID   int    `json:"type_id"`
 		Name string `json:"name"`
 	} `json:"types"`
-	Buckets []struct {
-		ID       int    `json:"id"`
-		Name     string `json:"name"`
-		TypeID   int    `json:"type_id"`
-		TypeName string `json:"type_name"`
-		Weight   int    `json:"weight"`
-		Alg      string `json:"alg"`
-		Hash     string `json:"hash"`
-		Items    []struct {
-			ID     int `json:"id"`
-			Weight int `json:"weight"`
-			Pos    int `json:"pos"`
-		} `json:"items"`
-	} `json:"buckets"`
-	Rules    []ruleSpec `json:"rules"`
+	Buckets  []CrushBucket `json:"buckets"`
+	Rules    []ruleSpec    `json:"rules"`
 	Tunables struct {
 		// Add if necessary
 	} `json:"tunables"`
+}
+
+// CrushBucket is a go representation of a bucket of the Ceph crush map
+type CrushBucket struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	TypeID   int    `json:"type_id"`
+	TypeName string `json:"type_name"`
+	Weight   int    `json:"weight"`
+	Alg      string `json:"alg"`
+	Hash     string `json:"hash"`
+	Items    []struct {
+		ID     int `json:"id"`
+		Weight int `json:"weight"`
+		Pos    int `json:"pos"`
+	} `json:"items"`
 }
 
 type ruleSpec struct {
@@ -230,8 +233,13 @@ func decompileCRUSHMap(context *clusterd.Context, crushMapPath string) error {
 	return nil
 }
 
-func injectCRUSHMap(context *clusterd.Context, clusterInfo *ClusterInfo, crushMapPath string) error {
+// injectCRUSHMap sets the crush map. The monitor rejects it if the crush version is not priorVersion, so a map
+// built from an older copy cannot undo changes made since then. A negative priorVersion skips the check.
+func injectCRUSHMap(context *clusterd.Context, clusterInfo *ClusterInfo, crushMapPath string, priorVersion int) error {
 	args := []string{"osd", "setcrushmap", "--in-file", crushMapPath}
+	if priorVersion >= 0 {
+		args = append(args, strconv.Itoa(priorVersion))
+	}
 	exec := NewCephCommand(context, clusterInfo, args)
 	exec.JsonOutput = false
 	buf, err := exec.Run()

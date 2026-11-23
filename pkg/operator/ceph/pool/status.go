@@ -32,6 +32,8 @@ import (
 	"k8s.io/client-go/util/retry"
 )
 
+const primaryFailureDomainKey = "primaryFailureDomain"
+
 // updateStatus updates a pool CR with the given status
 func (r *ReconcileCephBlockPool) updateStatus(poolName types.NamespacedName, status cephv1.ConditionType, message string, observedGeneration int64, cephx *cephv1.CephxStatus) error {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -57,7 +59,7 @@ func (r *ReconcileCephBlockPool) updateStatus(poolName types.NamespacedName, sta
 
 		pool.Status.Phase = status
 		pool.Status.Message = message
-		updateStatusInfo(pool)
+		updateStatusInfo(pool, r.writeAffinityPrimary(pool))
 		if observedGeneration != k8sutil.ObservedGenerationNotAvailable {
 			pool.Status.ObservedGeneration = observedGeneration
 		}
@@ -80,7 +82,9 @@ func (r *ReconcileCephBlockPool) updateStatus(poolName types.NamespacedName, sta
 	return nil
 }
 
-func updateStatusInfo(cephBlockPool *cephv1.CephBlockPool) {
+// updateStatusInfo sets the status info of the pool. primaryFailureDomain is only published when the pool
+// uses its write affinity rule.
+func updateStatusInfo(cephBlockPool *cephv1.CephBlockPool, primaryFailureDomain string) {
 	m := make(map[string]string)
 	if cephBlockPool.Status.Phase == cephv1.ConditionReady && cephBlockPool.Spec.Mirroring.Enabled {
 		mirroringInfo := opcontroller.GenerateStatusInfo(cephBlockPool)
@@ -99,7 +103,34 @@ func updateStatusInfo(cephBlockPool *cephv1.CephBlockPool) {
 		m["failureDomain"] = cephv1.DefaultFailureDomain
 	}
 
+	if primaryFailureDomain != "" {
+		m[primaryFailureDomainKey] = primaryFailureDomain
+	}
+
 	cephBlockPool.Status.Info = m
+}
+
+// writeAffinityPrimary returns the first write affinity failure domain of the pool if the crush rule of the
+// pool places the primaries in it. The rule differs from the spec until enableCrushUpdates allows the change.
+func (r *ReconcileCephBlockPool) writeAffinityPrimary(cephBlockPool *cephv1.CephBlockPool) string {
+	if !cephBlockPool.Spec.IsWriteAffinityPool() {
+		return ""
+	}
+	// The cluster info is not loaded before the first reconcile of the namespace
+	if r.clusterInfo == nil || r.clusterInfo.Namespace != cephBlockPool.Namespace {
+		return cephBlockPool.Status.Info[primaryFailureDomainKey]
+	}
+	bucket, err := cephclient.GetWriteAffinityPrimary(r.context, r.clusterInfo, cephBlockPool.ToNamedPoolSpec().Name)
+	if err != nil {
+		// keep the last known value
+		logger.Debugf("failed to get the primary failure domain of pool %q. %v", cephBlockPool.Name, err)
+		return cephBlockPool.Status.Info[primaryFailureDomainKey]
+	}
+	primary := cephBlockPool.Spec.Replicated.WriteAffinity.FailureDomains[0]
+	if bucket != cephclient.NormalizeCrushName(primary) {
+		return ""
+	}
+	return primary
 }
 
 func (r *ReconcileCephBlockPool) updatePoolID(cephBlockPool *cephv1.CephBlockPool) {

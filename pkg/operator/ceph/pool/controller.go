@@ -333,6 +333,11 @@ func (r *ReconcileCephBlockPool) reconcile(request reconcile.Request) (reconcile
 		return reconcileResponse, *cephBlockPool, errors.Wrapf(err, "failed to create pool %q.", cephBlockPool.GetName())
 	}
 
+	if msg := writeAffinityCrushRuleMismatch(r.context, clusterInfo, &cephCluster.Spec, poolSpec); msg != "" {
+		log.NamedWarning(request.NamespacedName, logger, "%s", msg)
+		r.recorder.Eventf(cephBlockPool, nil, corev1.EventTypeWarning, "CrushRuleNotUpdated", "Reconciling", msg)
+	}
+
 	// enable/disable RBD stats collection based on cephBlockPool spec
 	if err := configureRBDStats(r.context, clusterInfo, ""); err != nil {
 		return reconcile.Result{}, *cephBlockPool, errors.Wrap(err, "failed to enable/disable stats collection for pool(s)")
@@ -575,6 +580,32 @@ func createPool(context *clusterd.Context, clusterInfo *cephclient.ClusterInfo, 
 	log.NamedInfo(nsName, logger, "successfully initialized pool for RBD use")
 
 	return nil
+}
+
+// writeAffinityCrushRuleMismatch returns a message if a pool does not use the crush rule of its writeAffinity
+// setting, which happens when enableCrushUpdates is not set on an existing pool.
+func writeAffinityCrushRuleMismatch(context *clusterd.Context, clusterInfo *cephclient.ClusterInfo, clusterSpec *cephv1.ClusterSpec, p cephv1.NamedPoolSpec) string {
+	crushUpdatesEnabled := p.EnableCrushUpdates != nil && *p.EnableCrushUpdates
+	// A pool that is not a write affinity pool only keeps a write affinity rule when the change is not allowed
+	if !p.IsWriteAffinityPool() && crushUpdatesEnabled {
+		return ""
+	}
+	details, err := cephclient.GetPoolDetails(context, clusterInfo, p.Name)
+	if err != nil {
+		logger.Warningf("failed to get details of pool %q to check its crush rule. %v", p.Name, err)
+		return ""
+	}
+	if !p.IsWriteAffinityPool() {
+		if !cephclient.IsWriteAffinityCrushRule(p.Name, details.CrushRule) {
+			return ""
+		}
+		return fmt.Sprintf("pool %q still uses the write affinity crush rule %q after writeAffinity was removed. set enableCrushUpdates to true to apply the change, which moves data", p.Name, details.CrushRule)
+	}
+	desired := cephclient.WriteAffinityCrushRuleName(clusterSpec, p)
+	if details.CrushRule == desired {
+		return ""
+	}
+	return fmt.Sprintf("pool %q uses crush rule %q instead of the write affinity rule %q. set enableCrushUpdates to true to apply writeAffinity, which moves data", p.Name, details.CrushRule, desired)
 }
 
 // Delete the pool

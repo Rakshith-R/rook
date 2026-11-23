@@ -58,6 +58,21 @@ func TestValidateCephBlockPoolBuiltInPool(t *testing.T) {
 
 	err := ValidateCephBlockPool(p)
 	assert.EqualError(t, err, `invalid CephBlockPool spec: ceph built-in pool ".mgr" cannot be erasure coded`)
+
+	p.Spec.PoolSpec = PoolSpec{
+		Replicated: ReplicatedSpec{Size: 2, WriteAffinity: &WriteAffinitySpec{FailureDomains: []string{"a", "b"}}},
+	}
+	err = ValidateCephBlockPool(p)
+	assert.EqualError(t, err, `invalid CephBlockPool spec: ceph built-in pool ".mgr" does not support writeAffinity`)
+}
+
+func TestIsWriteAffinityPool(t *testing.T) {
+	p := &PoolSpec{}
+	assert.False(t, p.IsWriteAffinityPool())
+	p.Replicated.WriteAffinity = &WriteAffinitySpec{}
+	assert.False(t, p.IsWriteAffinityPool())
+	p.Replicated.WriteAffinity.FailureDomains = []string{"a", "b"}
+	assert.True(t, p.IsWriteAffinityPool())
 }
 
 func TestMirroringSpec_SnapshotSchedulesEnabled(t *testing.T) {

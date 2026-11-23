@@ -1445,6 +1445,8 @@ type Status struct {
 }
 
 // ReplicatedSpec represents the spec for replication in a pool
+// +kubebuilder:validation:XValidation:message="writeAffinity and hybridStorage cannot be specified together",rule="!has(self.writeAffinity) || !has(self.hybridStorage)"
+// +kubebuilder:validation:XValidation:message="size must equal the number of writeAffinity failureDomains multiplied by replicasPerFailureDomain",rule="!has(self.writeAffinity) || self.size == size(self.writeAffinity.failureDomains) * (has(self.replicasPerFailureDomain) ? self.replicasPerFailureDomain : 1)"
 type ReplicatedSpec struct {
 	// Size - Number of copies per object in a replicated storage pool, including the object itself (required for replicated pool type)
 	// +kubebuilder:validation:Minimum=0
@@ -1472,6 +1474,25 @@ type ReplicatedSpec struct {
 	// +optional
 	// +nullable
 	HybridStorage *HybridStorageSpec `json:"hybridStorage,omitempty"`
+
+	// WriteAffinity places the replicas of the pool in an explicit, ordered list of CRUSH failure domains.
+	// The primary OSD of every PG is in the first failure domain of the list. Only supported for CephBlockPool.
+	// +optional
+	WriteAffinity *WriteAffinitySpec `json:"writeAffinity,omitempty"`
+}
+
+// WriteAffinitySpec represents the write affinity settings of a replicated pool
+type WriteAffinitySpec struct {
+	// FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
+	// must be of the type set in the pool failureDomain, for example the names of the zones. The first
+	// entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
+	// next entry of the list. Entries must be unique.
+	// +kubebuilder:validation:MinItems=2
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=63
+	// +listType=atomic
+	FailureDomains []string `json:"failureDomains"`
 }
 
 // HybridStorageSpec represents the settings for hybrid storage pool

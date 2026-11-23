@@ -17,8 +17,11 @@ limitations under the License.
 package client
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	cephv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
@@ -57,7 +60,92 @@ rule %s {
 `
 )
 
+// writeAffinityRuleInfix separates the pool name from the rule hash in write affinity crush rule names
+const writeAffinityRuleInfix = "_wa_"
+
 var stepEmit = &stepSpec{Operation: "emit"}
+
+// WriteAffinitySubFailureDomain returns the bucket type chosen inside each write affinity failure domain
+func WriteAffinitySubFailureDomain(clusterSpec *cephv1.ClusterSpec, pool cephv1.PoolSpec) string {
+	if pool.Replicated.SubFailureDomain != "" {
+		return pool.Replicated.SubFailureDomain
+	}
+	if clusterSpec.IsStretchCluster() && clusterSpec.Mon.StretchCluster.SubFailureDomain != "" {
+		return clusterSpec.Mon.StretchCluster.SubFailureDomain
+	}
+	return cephv1.DefaultFailureDomain
+}
+
+// buildWriteAffinityCrushSteps renders one take/chooseleaf/emit block per write affinity failure domain, in
+// order, so that the primary OSD is always chosen from the first failure domain.
+func buildWriteAffinityCrushSteps(clusterSpec *cephv1.ClusterSpec, pool cephv1.PoolSpec) string {
+	replicas := pool.Replicated.ReplicasPerFailureDomain
+	if replicas == 0 {
+		replicas = 1
+	}
+	var class string
+	if pool.DeviceClass != "" {
+		class = " class " + pool.DeviceClass
+	}
+	subFailureDomain := WriteAffinitySubFailureDomain(clusterSpec, pool)
+
+	var b strings.Builder
+	for _, failureDomain := range pool.Replicated.WriteAffinity.FailureDomains {
+		fmt.Fprintf(&b, "        step take %s%s\n", NormalizeCrushName(failureDomain), class)
+		fmt.Fprintf(&b, "        step chooseleaf firstn %d type %s\n", replicas, subFailureDomain)
+		b.WriteString("        step emit\n")
+	}
+	return b.String()
+}
+
+// WriteAffinityCrushRuleName returns the name of the crush rule of a write affinity pool. The name ends with
+// a hash of the rule steps so that any change of the desired placement results in a new rule.
+func WriteAffinityCrushRuleName(clusterSpec *cephv1.ClusterSpec, pool cephv1.NamedPoolSpec) string {
+	sum := sha256.Sum256([]byte(buildWriteAffinityCrushSteps(clusterSpec, pool.PoolSpec)))
+	return pool.Name + writeAffinityRuleInfix + hex.EncodeToString(sum[:4])
+}
+
+// isWriteAffinityCrushRule returns whether the crush rule was generated for writeAffinity of the given pool
+func isWriteAffinityCrushRule(poolName, ruleName string) bool {
+	hash, found := strings.CutPrefix(ruleName, poolName+writeAffinityRuleInfix)
+	if !found || len(hash) != 8 {
+		return false
+	}
+	_, err := hex.DecodeString(hash)
+	return err == nil
+}
+
+// IsWriteAffinityCrushRule returns whether the rule is a write affinity rule of the pool
+func IsWriteAffinityCrushRule(poolName, ruleName string) bool {
+	return isWriteAffinityCrushRule(poolName, ruleName)
+}
+
+// GetWriteAffinityPrimary returns the bucket of the first take step of the crush rule of the pool, which holds
+// the primary OSDs, or "" if the pool does not use a write affinity rule
+func GetWriteAffinityPrimary(context *clusterd.Context, clusterInfo *ClusterInfo, poolName string) (string, error) {
+	details, err := GetPoolDetails(context, clusterInfo, poolName)
+	if err != nil {
+		return "", err
+	}
+	if !isWriteAffinityCrushRule(poolName, details.CrushRule) {
+		return "", nil
+	}
+	rule, err := getCrushRule(context, clusterInfo, details.CrushRule)
+	if err != nil {
+		return "", err
+	}
+	for _, step := range rule.Steps {
+		if step.Operation == "take" {
+			bucket, _, _ := strings.Cut(step.ItemName, "~")
+			return bucket, nil
+		}
+	}
+	return "", nil
+}
+
+func buildWriteAffinityCrushRule(crushMap CrushMap, ruleName, steps string) string {
+	return fmt.Sprintf("\nrule %s {\n        id %d\n        type replicated\n%s}\n", ruleName, generateRuleID(crushMap.Rules), steps)
+}
 
 func buildTwoStepPlainCrushRule(crushMap CrushMap, ruleName string, pool cephv1.PoolSpec) string {
 	var crushRuleInsert string

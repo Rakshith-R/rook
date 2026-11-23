@@ -15147,6 +15147,21 @@ HybridStorageSpec
 <p>HybridStorage represents hybrid storage tier settings</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>writeAffinity</code><br/>
+<em>
+<a href="#ceph.rook.io/v1.WriteAffinitySpec">
+WriteAffinitySpec
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>WriteAffinity places the replicas of the pool in an explicit, ordered list of CRUSH failure domains.
+The primary OSD of every PG is in the first failure domain of the list. Only supported for CephBlockPool.</p>
+</td>
+</tr>
 </tbody>
 </table>
 <h3 id="ceph.rook.io/v1.ResourceSpec">ResourceSpec
@@ -17056,6 +17071,38 @@ More info: <a href="https://kubernetes.io/docs/concepts/storage/volume-attribute
 </td>
 </tr>
 </table>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ceph.rook.io/v1.WriteAffinitySpec">WriteAffinitySpec
+</h3>
+<p>
+(<em>Appears on:</em><a href="#ceph.rook.io/v1.ReplicatedSpec">ReplicatedSpec</a>)
+</p>
+<div>
+<p>WriteAffinitySpec represents the write affinity settings of a replicated pool</p>
+</div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>failureDomains</code><br/>
+<em>
+[]string
+</em>
+</td>
+<td>
+<p>FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
+must be of the type set in the pool failureDomain, for example the names of the zones. The first
+entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
+next entry of the list. Entries must be unique.</p>
 </td>
 </tr>
 </tbody>
