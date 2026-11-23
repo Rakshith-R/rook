@@ -297,6 +297,8 @@ const writeAffinityCrushMapJSON = `{
     {"id": -27, "name": "us-east1", "type_id": 1, "type_name": "host", "items": [{"id": 6, "weight": 1, "pos": 0}]},
     {"id": -28, "name": "d1", "type_id": 1, "type_name": "host", "items": [{"id": 8, "weight": 1, "pos": 0}]},
     {"id": -29, "name": "d2", "type_id": 1, "type_name": "host", "items": [{"id": 9, "weight": 1, "pos": 0}]},
+    {"id": -100, "name": "d1~ssd", "type_id": 1, "type_name": "host", "items": [{"id": 8, "weight": 1, "pos": 0}]},
+    {"id": -101, "name": "a1~ssd", "type_id": 1, "type_name": "host", "items": [{"id": 0, "weight": 1, "pos": 0}]},
     {"id": -26, "name": "x1", "type_id": 1, "type_name": "host", "items": [{"id": 7, "weight": 1, "pos": 0}]}
   ]
 }`

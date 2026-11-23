@@ -274,6 +274,7 @@ func validateWriteAffinity(clusterSpec *cephv1.ClusterSpec, p *cephv1.PoolSpec, 
 		crushRoot = cephclient.GetCrushRootFromSpec(clusterSpec)
 	}
 	underRoot := crushSubtree(crush, crushRoot)
+	parents := crushParents(crush)
 	seen := map[string]bool{}
 	for _, failureDomain := range failureDomains {
 		name := cephclient.NormalizeCrushName(failureDomain)
@@ -293,7 +294,7 @@ func validateWriteAffinity(clusterSpec *cephv1.ClusterSpec, p *cephv1.PoolSpec, 
 		if p.DeviceClass != "" && !hasDeviceClass(crush, subtree, p.DeviceClass) {
 			return errors.Errorf("crush bucket %q has no OSDs of device class %q", name, p.DeviceClass)
 		}
-		if count := countCrushBuckets(crush, subtree, subFailureDomain, p.DeviceClass); count < int(replicas) {
+		if count := countCrushBuckets(crush, parents, subtree, subFailureDomain, p.DeviceClass); count < int(replicas) {
 			return errors.Errorf("crush bucket %q has %d buckets of type %q with OSDs%s, at least %d are required", name, count, subFailureDomain, deviceClassSuffix(p.DeviceClass), replicas)
 		}
 	}
@@ -374,22 +375,40 @@ func crushSubtree(crush cephclient.CrushMap, name string) map[int]bool {
 
 // countCrushBuckets returns the number of buckets of the given type in the subtree that hold OSDs of the device
 // class, or any OSDs if deviceClass is empty. A type of "osd" counts the OSDs.
-func countCrushBuckets(crush cephclient.CrushMap, subtree map[int]bool, typeName, deviceClass string) int {
-	count := 0
-	if typeName == "osd" {
-		for _, device := range crush.Devices {
-			if subtree[device.ID] && (deviceClass == "" || device.Class == deviceClass) {
-				count++
+func countCrushBuckets(crush cephclient.CrushMap, parents map[int]*cephclient.CrushBucket, subtree map[int]bool, typeName, deviceClass string) int {
+	found := map[int]bool{}
+	for _, device := range crush.Devices {
+		if !subtree[device.ID] || (deviceClass != "" && device.Class != deviceClass) {
+			continue
+		}
+		if typeName == "osd" {
+			found[device.ID] = true
+			continue
+		}
+		// the closest ancestor of the type holds the device
+		for bucket := parents[device.ID]; bucket != nil && subtree[bucket.ID]; bucket = parents[bucket.ID] {
+			if bucket.TypeName == typeName {
+				found[bucket.ID] = true
+				break
 			}
 		}
-		return count
 	}
-	for _, bucket := range crush.Buckets {
-		if subtree[bucket.ID] && bucket.TypeName == typeName && hasDeviceClass(crush, crushSubtree(crush, bucket.Name), deviceClass) {
-			count++
+	return len(found)
+}
+
+// crushParents maps the ID of every bucket and device to its parent bucket
+func crushParents(crush cephclient.CrushMap) map[int]*cephclient.CrushBucket {
+	parents := map[int]*cephclient.CrushBucket{}
+	for i := range crush.Buckets {
+		// skip the shadow buckets of the device classes, which hold the same devices
+		if strings.Contains(crush.Buckets[i].Name, "~") {
+			continue
+		}
+		for _, item := range crush.Buckets[i].Items {
+			parents[item.ID] = &crush.Buckets[i]
 		}
 	}
-	return count
+	return parents
 }
 
 func deviceClassSuffix(deviceClass string) string {
