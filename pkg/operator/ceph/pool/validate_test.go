@@ -269,7 +269,9 @@ const writeAffinityCrushMapJSON = `{
     {"id": 4, "name": "osd.4", "class": "hdd"},
     {"id": 5, "name": "osd.5", "class": "hdd"},
     {"id": 6, "name": "osd.6", "class": "ssd"},
-    {"id": 7, "name": "osd.7", "class": "hdd"}
+    {"id": 7, "name": "osd.7", "class": "hdd"},
+    {"id": 8, "name": "osd.8", "class": "ssd"},
+    {"id": 9, "name": "osd.9", "class": "hdd"}
   ],
   "types": [
     {"type_id": 0, "name": "osd"},
@@ -278,12 +280,13 @@ const writeAffinityCrushMapJSON = `{
     {"type_id": 10, "name": "root"}
   ],
   "buckets": [
-    {"id": -1, "name": "default", "type_id": 10, "type_name": "root", "items": [{"id": -10, "weight": 1, "pos": 0}, {"id": -11, "weight": 1, "pos": 1}, {"id": -12, "weight": 1, "pos": 2}, {"id": -13, "weight": 1, "pos": 3}]},
+    {"id": -1, "name": "default", "type_id": 10, "type_name": "root", "items": [{"id": -10, "weight": 1, "pos": 0}, {"id": -11, "weight": 1, "pos": 1}, {"id": -12, "weight": 1, "pos": 2}, {"id": -13, "weight": 1, "pos": 3}, {"id": -14, "weight": 1, "pos": 4}]},
     {"id": -2, "name": "alt", "type_id": 10, "type_name": "root", "items": [{"id": -30, "weight": 1, "pos": 0}]},
     {"id": -10, "name": "a", "type_id": 9, "type_name": "zone", "items": [{"id": -20, "weight": 1, "pos": 0}, {"id": -21, "weight": 1, "pos": 1}]},
     {"id": -11, "name": "b", "type_id": 9, "type_name": "zone", "items": [{"id": -22, "weight": 1, "pos": 0}, {"id": -23, "weight": 1, "pos": 1}]},
     {"id": -12, "name": "c", "type_id": 9, "type_name": "zone", "items": [{"id": -24, "weight": 1, "pos": 0}, {"id": -25, "weight": 1, "pos": 1}]},
     {"id": -13, "name": "us-east", "type_id": 9, "type_name": "zone", "items": [{"id": -27, "weight": 1, "pos": 0}]},
+    {"id": -14, "name": "d", "type_id": 9, "type_name": "zone", "items": [{"id": -28, "weight": 1, "pos": 0}, {"id": -29, "weight": 1, "pos": 1}]},
     {"id": -30, "name": "x", "type_id": 9, "type_name": "zone", "items": [{"id": -26, "weight": 1, "pos": 0}]},
     {"id": -20, "name": "a1", "type_id": 1, "type_name": "host", "items": [{"id": 0, "weight": 1, "pos": 0}]},
     {"id": -21, "name": "a2", "type_id": 1, "type_name": "host", "items": [{"id": 1, "weight": 1, "pos": 0}]},
@@ -292,6 +295,8 @@ const writeAffinityCrushMapJSON = `{
     {"id": -24, "name": "c1", "type_id": 1, "type_name": "host", "items": [{"id": 4, "weight": 1, "pos": 0}]},
     {"id": -25, "name": "c2", "type_id": 1, "type_name": "host", "items": [{"id": 5, "weight": 1, "pos": 0}]},
     {"id": -27, "name": "us-east1", "type_id": 1, "type_name": "host", "items": [{"id": 6, "weight": 1, "pos": 0}]},
+    {"id": -28, "name": "d1", "type_id": 1, "type_name": "host", "items": [{"id": 8, "weight": 1, "pos": 0}]},
+    {"id": -29, "name": "d2", "type_id": 1, "type_name": "host", "items": [{"id": 9, "weight": 1, "pos": 0}]},
     {"id": -26, "name": "x1", "type_id": 1, "type_name": "host", "items": [{"id": 7, "weight": 1, "pos": 0}]}
   ]
 }`
@@ -323,6 +328,15 @@ func TestValidateWriteAffinity(t *testing.T) {
 
 	rootSubFailureDomainSpec := writeAffinityPoolSpec("zone", 3, 0, "a", "b", "c")
 	rootSubFailureDomainSpec.Replicated.SubFailureDomain = "root"
+
+	deviceClassHostsSpec := writeAffinityPoolSpec("zone", 6, 2, "a", "b", "d")
+	deviceClassHostsSpec.DeviceClass = "ssd"
+
+	sizeParameterSpec := writeAffinityPoolSpec("zone", 3, 0, "a", "b", "c")
+	sizeParameterSpec.Parameters = map[string]string{"size": "4"}
+
+	crushRuleParameterSpec := writeAffinityPoolSpec("zone", 3, 0, "a", "b", "c")
+	crushRuleParameterSpec.Parameters = map[string]string{"crush_rule": "replicated_rule"}
 
 	tests := []struct {
 		name        string
@@ -380,12 +394,31 @@ func TestValidateWriteAffinity(t *testing.T) {
 		{
 			name:        "subFailureDomain not below the failure domains",
 			spec:        rootSubFailureDomainSpec,
-			expectedErr: `crush bucket "a" has 0 buckets of type "root", at least 1 are required`,
+			expectedErr: `crush bucket "a" has 0 buckets of type "root" with OSDs, at least 1 are required`,
 		},
 		{
 			name:        "not enough subFailureDomain buckets for replicasPerFailureDomain",
 			spec:        writeAffinityPoolSpec("zone", 24, 8, "a", "b", "c"),
-			expectedErr: `buckets of type "host", at least 8 are required`,
+			expectedErr: `buckets of type "host" with OSDs, at least 8 are required`,
+		},
+		{
+			name: "two hosts per failure domain",
+			spec: writeAffinityPoolSpec("zone", 6, 2, "a", "b", "d"),
+		},
+		{
+			name:        "hosts without OSDs of the device class are not counted",
+			spec:        deviceClassHostsSpec,
+			expectedErr: `crush bucket "d" has 1 buckets of type "host" with OSDs of device class "ssd", at least 2 are required`,
+		},
+		{
+			name:        "size parameter rejected",
+			spec:        sizeParameterSpec,
+			expectedErr: `parameter "size" cannot be set`,
+		},
+		{
+			name:        "crush_rule parameter rejected",
+			spec:        crushRuleParameterSpec,
+			expectedErr: `parameter "crush_rule" cannot be set`,
 		},
 		{
 			name: "failure domain name is normalized",

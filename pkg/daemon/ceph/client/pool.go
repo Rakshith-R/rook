@@ -529,11 +529,9 @@ func createReplicatedPoolForApp(context *clusterd.Context, clusterInfo *ClusterI
 				// updatePoolCrushRuleLocked() cannot tell a write affinity rule from a plain rule, so the pool
 				// is moved below to the rule that updatePoolCrushRuleLocked() expects for the spec
 				crushRuleName = replicatedCrushRuleName(pool)
-				if crushRuleName == pool.Name {
-					// The rule may have been created for an older spec of the pool, recreate it
-					if err := deleteCrushRule(context, clusterInfo, crushRuleName); err != nil {
-						return errors.Wrapf(err, "failed to delete stale crush rule %q", crushRuleName)
-					}
+				// The rule may have been created for an older spec of the pool, for example another crush root
+				if err := deleteCrushRule(context, clusterInfo, crushRuleName); err != nil {
+					return errors.Wrapf(err, "failed to delete stale crush rule %q", crushRuleName)
 				}
 			}
 			// Only create the initial crush rule if the pool doesn't exist yet.
@@ -558,6 +556,14 @@ func createReplicatedPoolForApp(context *clusterd.Context, clusterInfo *ClusterI
 			return errors.Wrapf(err, "failed to create replicated pool %s. %s", pool.Name, string(output))
 		}
 	} else {
+		// A write affinity rule places a fixed number of replicas, so the rule of a larger pool is set before its
+		// size and the rule of a smaller pool after its size
+		if crushUpdatesEnabled && (pool.IsWriteAffinityPool() || revertWriteAffinity) && pool.Replicated.Size > poolDetails.Size {
+			if err := updateWriteAffinityCrushRule(context, clusterInfo, pool, poolDetails.CrushRule, crushRuleName); err != nil {
+				return err
+			}
+			poolDetails.CrushRule = crushRuleName
+		}
 		// If the pool is type replicated, set the size for the pool if it changed
 		if !clusterSpec.IsStretchCluster() && pool.IsReplicated() && poolDetails.Size != pool.Replicated.Size {
 			// A write affinity rule places a fixed number of replicas, the PGs would be undersized
@@ -886,25 +892,52 @@ func createWriteAffinityCrushRule(context *clusterd.Context, clusterInfo *Cluste
 	})
 }
 
+const crushMapUpdateAttempts = 3
+
+var errCrushMapChanged = errors.New("crush map changed")
+
 // addCrushRule adds the rule built by buildRule to the crush map if no rule with that name exists
 func addCrushRule(context *clusterd.Context, clusterInfo *ClusterInfo, ruleName string, buildRule func(CrushMap) string) error {
 	crushMapMutex.Lock()
 	defer crushMapMutex.Unlock()
 
+	// The crush map can also change outside of this process, retry when it changed while the rule was added
+	var err error
+	for range crushMapUpdateAttempts {
+		err = updateCrushMap(context, clusterInfo, ruleName, buildRule)
+		if !errors.Is(err, errCrushMapChanged) {
+			return err
+		}
+		logger.Infof("crush map changed while adding crush rule %q, retrying", ruleName)
+	}
+	return err
+}
+
+// updateCrushMap adds the rule built by buildRule to the crush map with crushtool if no rule with that name exists
+func updateCrushMap(context *clusterd.Context, clusterInfo *ClusterInfo, ruleName string, buildRule func(CrushMap) string) error {
 	crushMap, err := getCurrentCrushMap(context, clusterInfo)
 	if err != nil {
 		return errors.Wrap(err, "failed to get current crush map")
 	}
-
 	if crushRuleExists(crushMap, ruleName) {
 		logger.Debugf("CRUSH rule %q already exists", ruleName)
 		return nil
 	}
 
-	return updateCrushMap(context, clusterInfo, buildRule(crushMap))
-}
+	// The version is read before the maps, so a change in between makes the injection fail rather than undo it
+	osdDump, err := GetOSDDump(context, clusterInfo)
+	if err != nil {
+		return errors.Wrap(err, "failed to get crush version")
+	}
+	priorVersion := osdDump.CrushVersion
 
-func updateCrushMap(context *clusterd.Context, clusterInfo *ClusterInfo, ruleset string) error {
+	// The rule ID is computed from the rules of a map that is not older than the version
+	crushMap, err = getCurrentCrushMap(context, clusterInfo)
+	if err != nil {
+		return errors.Wrap(err, "failed to get current crush map")
+	}
+	ruleset := buildRule(crushMap)
+
 	// Fetch the compiled crush map
 	compiledCRUSHMapFilePath, err := GetCompiledCrushMap(context, clusterInfo)
 	if err != nil {
@@ -960,8 +993,11 @@ func updateCrushMap(context *clusterd.Context, clusterInfo *ClusterInfo, ruleset
 	}()
 
 	// Inject the new CRUSH Map
-	err = injectCRUSHMap(context, clusterInfo, buildCompileCRUSHFileName(decompiledCRUSHMapFilePath))
+	err = injectCRUSHMap(context, clusterInfo, buildCompileCRUSHFileName(decompiledCRUSHMapFilePath), priorVersion)
 	if err != nil {
+		if strings.Contains(err.Error(), "prior_version") {
+			return errors.Wrapf(errCrushMapChanged, "%v", err)
+		}
 		return errors.Wrap(err, "failed to inject crush map")
 	}
 

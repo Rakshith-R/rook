@@ -19,6 +19,7 @@ package pool
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -250,6 +251,12 @@ func validateWriteAffinity(clusterSpec *cephv1.ClusterSpec, p *cephv1.PoolSpec, 
 	if subFailureDomain == p.FailureDomain {
 		return errors.Errorf("failureDomain and subFailureDomain %q cannot be identical", subFailureDomain)
 	}
+	// Parameters are applied after the crush rule and would change the placement of the rule
+	for _, param := range []string{"size", "crush_rule"} {
+		if _, ok := p.Parameters[param]; ok {
+			return errors.Errorf("parameter %q cannot be set", param)
+		}
+	}
 	failureDomains := p.Replicated.WriteAffinity.FailureDomains
 	replicas := max(p.Replicated.ReplicasPerFailureDomain, 1)
 	if p.Replicated.Size != uint(len(failureDomains))*replicas {
@@ -286,8 +293,8 @@ func validateWriteAffinity(clusterSpec *cephv1.ClusterSpec, p *cephv1.PoolSpec, 
 		if p.DeviceClass != "" && !hasDeviceClass(crush, subtree, p.DeviceClass) {
 			return errors.Errorf("crush bucket %q has no OSDs of device class %q", name, p.DeviceClass)
 		}
-		if count := countCrushBuckets(crush, subtree, subFailureDomain); count < int(replicas) {
-			return errors.Errorf("crush bucket %q has %d buckets of type %q, at least %d are required", name, count, subFailureDomain, replicas)
+		if count := countCrushBuckets(crush, subtree, subFailureDomain, p.DeviceClass); count < int(replicas) {
+			return errors.Errorf("crush bucket %q has %d buckets of type %q with OSDs%s, at least %d are required", name, count, subFailureDomain, deviceClassSuffix(p.DeviceClass), replicas)
 		}
 	}
 	return nil
@@ -365,28 +372,36 @@ func crushSubtree(crush cephclient.CrushMap, name string) map[int]bool {
 	return subtree
 }
 
-// countCrushBuckets returns the number of buckets of the given type in the subtree. A type of "osd" counts devices.
-func countCrushBuckets(crush cephclient.CrushMap, subtree map[int]bool, typeName string) int {
+// countCrushBuckets returns the number of buckets of the given type in the subtree that hold OSDs of the device
+// class, or any OSDs if deviceClass is empty. A type of "osd" counts the OSDs.
+func countCrushBuckets(crush cephclient.CrushMap, subtree map[int]bool, typeName, deviceClass string) int {
 	count := 0
 	if typeName == "osd" {
 		for _, device := range crush.Devices {
-			if subtree[device.ID] {
+			if subtree[device.ID] && (deviceClass == "" || device.Class == deviceClass) {
 				count++
 			}
 		}
 		return count
 	}
 	for _, bucket := range crush.Buckets {
-		if subtree[bucket.ID] && bucket.TypeName == typeName {
+		if subtree[bucket.ID] && bucket.TypeName == typeName && hasDeviceClass(crush, crushSubtree(crush, bucket.Name), deviceClass) {
 			count++
 		}
 	}
 	return count
 }
 
+func deviceClassSuffix(deviceClass string) string {
+	if deviceClass == "" {
+		return ""
+	}
+	return " of device class " + strconv.Quote(deviceClass)
+}
+
 func hasDeviceClass(crush cephclient.CrushMap, subtree map[int]bool, deviceClass string) bool {
 	for _, device := range crush.Devices {
-		if subtree[device.ID] && device.Class == deviceClass {
+		if subtree[device.ID] && (deviceClass == "" || device.Class == deviceClass) {
 			return true
 		}
 	}

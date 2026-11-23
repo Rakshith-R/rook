@@ -243,11 +243,18 @@ append the rule, compile and inject (`updateCrushMap()` in `pkg/daemon/ceph/clie
 `crushRuleMutex`, so two concurrent pool reconciles could each read the CRUSH map, add their rule and write
 back a map missing the other's rule, or allocate the same free rule ID. A new `crushMapMutex` serializes the
 whole check-exists, ID allocation and inject sequence in a new `addCrushRule()` helper. All crushtool rule
-creation goes through it: write affinity, hybrid, two-step and the stretch default rule.
+creation goes through it: write affinity, hybrid, two-step and the stretch default rule. Rules created and
+removed with `ceph osd crush rule` commands take the same mutex. Writers outside the mutex, such as OSD
+reweights, device class changes or other processes, are handled by the monitor: the crush version is read from
+`ceph osd dump` before the map is exported, and passed as the `prior_version` argument of `ceph osd setcrushmap`,
+which rejects the map if the crush map changed in between. The whole read-modify-write is then retried, up to
+three attempts.
 
 **Validation** (`ValidatePoolSpec()` / `validateWriteAffinity()`), in addition to the CRD rules:
 
 - `failureDomain` is set and the pool is replicated.
+- `parameters` does not set `size` or `crush_rule`, which are applied after the rule and would change its
+  placement.
 - Every entry is normalized and must exist in the CRUSH map as a bucket of type `failureDomain` below the pool
   CRUSH root (default `crushRoot` from the cluster spec, falling back to `default`). A missing bucket, for
   example a zone without OSDs yet, fails the reconcile with a clear message and is retried.
@@ -284,7 +291,8 @@ storage and two-step branches:
    pattern above; otherwise keep the current rule and report the mismatch (see Status). This matches how
    failure domain and device class changes are gated today. A size change is rejected while the pool keeps
    an old write affinity rule, because that rule places a fixed number of replicas and the PGs would be
-   undersized.
+   undersized. When the rule and the size both change, a larger pool gets its rule before the size and a
+   smaller pool after it, so an interrupted reconcile never leaves a pool on a rule narrower than its size.
 5. Skip `updatePoolCrushRuleLocked()`. It derives the failure domain from the first two steps of the rule and
    would read `host` from a write affinity rule, then replace it with a plain `create-replicated` rule.
 
@@ -292,9 +300,9 @@ storage and two-step branches:
 
 - Plain replicated (`replicasPerFailureDomain` at most 1): `updatePoolCrushRuleLocked()` cannot be used, since
   it returns early without `failureDomain` and `deviceClass` and can read a write affinity rule as a matching
-  plain rule. Rook creates the rule that `updatePoolCrushRuleLocked()` expects for the spec (`<pool>`,
-  recreated, without `failureDomain` and `deviceClass`; `<pool>_<failureDomain>[_<deviceClass>]` otherwise),
-  sets it, and deletes the previous write affinity rule.
+  plain rule. Rook recreates the rule that `updatePoolCrushRuleLocked()` expects for the spec (`<pool>` without
+  `failureDomain` and `deviceClass`, `<pool>_<failureDomain>[_<deviceClass>]` otherwise), since it may exist
+  from an older spec with another crush root, sets it, and deletes the previous write affinity rule.
 - Stretch cluster: the desired rule is `default_stretch_cluster_rule`; the pool is moved to it and the old
   write affinity rule is deleted.
 - `replicasPerFailureDomain > 1` and hybrid storage: the target rule is the `<pool>` rule, which may already

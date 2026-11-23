@@ -597,6 +597,9 @@ func testCreateStretchCrushRule(t *testing.T, alreadyExists bool) {
 	executor.MockExecuteCommandWithOutput = func(command string, args ...string) (string, error) {
 		logger.Infof("Command: %s %v", command, args)
 		if args[0] == "osd" {
+			if args[1] == "dump" {
+				return `{"crush_version": 1}`, nil
+			}
 			if args[1] == "getcrushmap" {
 				return "", nil
 			}
@@ -728,6 +731,9 @@ func testCreateHybridCrushRule(t *testing.T, alreadyExists bool) {
 	executor.MockExecuteCommandWithOutput = func(command string, args ...string) (string, error) {
 		logger.Infof("Command: %s %v", command, args)
 		if args[0] == "osd" {
+			if args[1] == "dump" {
+				return `{"crush_version": 1}`, nil
+			}
 			if args[1] == "getcrushmap" {
 				return "", nil
 			}
@@ -854,11 +860,14 @@ type writeAffinityTestExecutor struct {
 	size         int
 	stretchMode  bool
 	sizeSet      []string
+	order        []string
 	poolCreated  []string
 	ruleSet      []string
 	rulesRemoved []string
 	rulesCreated []string
 	crushMapSet  int
+	// crushMapChanges is the number of crush map injections that fail with a changed crush version
+	crushMapChanges int
 }
 
 func (e *writeAffinityTestExecutor) context(t *testing.T) *clusterd.Context {
@@ -871,9 +880,18 @@ func (e *writeAffinityTestExecutor) context(t *testing.T) *clusterd.Context {
 		switch {
 		case args[0] == "mon" && args[1] == "dump":
 			return fmt.Sprintf(`{"stretch_mode": %t}`, e.stretchMode), nil
+		case args[0] == "osd" && args[1] == "dump":
+			return fmt.Sprintf(`{"crush_version": %d}`, 5+e.crushMapSet), nil
 		case args[1] == "getcrushmap":
 			return "", nil
 		case args[1] == "setcrushmap":
+			if args[4] != fmt.Sprint(5+e.crushMapSet) {
+				return "", errors.Errorf("unexpected prior_version %q", args[4])
+			}
+			if e.crushMapChanges > 0 {
+				e.crushMapChanges--
+				return "", errors.New("Error EPERM: prior_version 5 != crush version 6")
+			}
 			e.crushMapSet++
 			return "", nil
 		case args[1] == "crush" && args[2] == "dump":
@@ -903,10 +921,12 @@ func (e *writeAffinityTestExecutor) context(t *testing.T) *clusterd.Context {
 			return "", nil
 		case args[1] == "pool" && args[2] == "set" && args[4] == "crush_rule":
 			e.ruleSet = append(e.ruleSet, args[5])
+			e.order = append(e.order, "crush_rule")
 			e.currentRule = args[5]
 			return "", nil
 		case args[1] == "pool" && args[2] == "set" && args[4] == "size":
 			e.sizeSet = append(e.sizeSet, args[5])
+			e.order = append(e.order, "size")
 			return "", nil
 		case args[1] == "pool" && args[2] == "set":
 			return "", nil
@@ -946,6 +966,19 @@ func TestCreateWriteAffinityPool(t *testing.T) {
 		assert.Equal(t, 1, e.crushMapSet)
 		assert.Empty(t, e.ruleSet)
 		assert.Empty(t, e.rulesCreated)
+	})
+
+	t.Run("new pool retries when the crush map changed", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{crushMapChanges: 1}
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, newPool(), DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, e.crushMapSet)
+		assert.Equal(t, []string{desiredRule}, e.poolCreated)
+
+		e = &writeAffinityTestExecutor{crushMapChanges: crushMapUpdateAttempts}
+		err = createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, newPool(), DefaultPGCount)
+		assert.ErrorIs(t, err, errCrushMapChanged)
+		assert.Empty(t, e.poolCreated)
 	})
 
 	t.Run("existing pool with the desired rule", func(t *testing.T) {
@@ -994,6 +1027,16 @@ func TestCreateWriteAffinityPool(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"4"}, e.sizeSet)
 		assert.Equal(t, []string{WriteAffinityCrushRuleName(clusterSpec, p)}, e.ruleSet)
+		assert.Equal(t, []string{"crush_rule", "size"}, e.order, "the wider rule is set before the size")
+	})
+
+	t.Run("size decrease sets the rule after the size", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd", size: 4}
+		p := newPool()
+		p.EnableCrushUpdates = &enable
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"size", "crush_rule"}, e.order)
 	})
 
 	t.Run("existing pool with enableCrushUpdates switches rule", func(t *testing.T) {
@@ -1072,7 +1115,7 @@ func TestCreateWriteAffinityPool(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"mypool_zone"}, e.rulesCreated)
 		assert.Equal(t, []string{"mypool_zone"}, e.ruleSet)
-		assert.Equal(t, []string{"mypool_wa_0123abcd"}, e.rulesRemoved)
+		assert.Equal(t, []string{"mypool_zone", "mypool_wa_0123abcd"}, e.rulesRemoved, "the target rule is recreated")
 	})
 
 	t.Run("removing writeAffinity from a pool without failureDomain", func(t *testing.T) {

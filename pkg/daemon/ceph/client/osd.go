@@ -62,6 +62,7 @@ type OSDDump struct {
 	FullRatio         float64             `json:"full_ratio"`
 	BackfillFullRatio float64             `json:"backfillfull_ratio"`
 	NearFullRatio     float64             `json:"nearfull_ratio"`
+	CrushVersion      int                 `json:"crush_version"`
 }
 
 // IsFlagSetOnCrushUnit checks if an OSD flag is set on specified Crush unit

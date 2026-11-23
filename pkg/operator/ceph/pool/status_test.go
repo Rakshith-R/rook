@@ -107,7 +107,7 @@ func TestUpdateStatusInfoPrimaryFailureDomain(t *testing.T) {
 
 func TestWriteAffinityPrimary(t *testing.T) {
 	cephBlockPool := &cephv1.CephBlockPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "mypool"},
+		ObjectMeta: metav1.ObjectMeta{Name: "mypool", Namespace: "mycluster"},
 		Spec: cephv1.NamedBlockPoolSpec{
 			PoolSpec: cephv1.PoolSpec{
 				FailureDomain: "zone",
@@ -155,6 +155,11 @@ func TestWriteAffinityPrimary(t *testing.T) {
 	t.Run("keeps the last value on error", func(t *testing.T) {
 		poolErr = errors.New("timeout")
 		defer func() { poolErr = nil }()
+		assert.Equal(t, "zone.a", r.writeAffinityPrimary(cephBlockPool))
+	})
+
+	t.Run("keeps the last value before the cluster info is loaded", func(t *testing.T) {
+		r := &ReconcileCephBlockPool{context: r.context}
 		assert.Equal(t, "zone.a", r.writeAffinityPrimary(cephBlockPool))
 	})
 

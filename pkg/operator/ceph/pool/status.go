@@ -116,6 +116,10 @@ func (r *ReconcileCephBlockPool) writeAffinityPrimary(cephBlockPool *cephv1.Ceph
 	if !cephBlockPool.Spec.IsWriteAffinityPool() {
 		return ""
 	}
+	// The cluster info is not loaded before the first reconcile of the namespace
+	if r.clusterInfo == nil || r.clusterInfo.Namespace != cephBlockPool.Namespace {
+		return cephBlockPool.Status.Info[primaryFailureDomainKey]
+	}
 	bucket, err := cephclient.GetWriteAffinityPrimary(r.context, r.clusterInfo, cephBlockPool.ToNamedPoolSpec().Name)
 	if err != nil {
 		// keep the last known value

@@ -233,8 +233,13 @@ func decompileCRUSHMap(context *clusterd.Context, crushMapPath string) error {
 	return nil
 }
 
-func injectCRUSHMap(context *clusterd.Context, clusterInfo *ClusterInfo, crushMapPath string) error {
+// injectCRUSHMap sets the crush map. The monitor rejects it if the crush version is not priorVersion, so a map
+// built from an older copy cannot undo changes made since then. A negative priorVersion skips the check.
+func injectCRUSHMap(context *clusterd.Context, clusterInfo *ClusterInfo, crushMapPath string, priorVersion int) error {
 	args := []string{"osd", "setcrushmap", "--in-file", crushMapPath}
+	if priorVersion >= 0 {
+		args = append(args, strconv.Itoa(priorVersion))
+	}
 	exec := NewCephCommand(context, clusterInfo, args)
 	exec.JsonOutput = false
 	buf, err := exec.Run()

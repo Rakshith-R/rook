@@ -5,8 +5,9 @@
 # writeAffinity.failureDomains list is rotated per pool.
 # A minimum of one OSD in each of the three zones is required. The nodes must carry the
 # topology.kubernetes.io/zone label with the values us-east-1a, us-east-1b and us-east-1c.
-# The CSI topology feature must be enabled by setting CSI_ENABLE_TOPOLOGY to "true" and
-# CSI_TOPOLOGY_DOMAIN_LABELS to "topology.kubernetes.io/zone" in the rook-ceph-operator-config ConfigMap.
+# The CSI topology feature must be enabled by setting spec.nodePlugin.topology.domainLabels to
+# ["topology.kubernetes.io/zone"] on the RBD Driver (rook-ceph.rbd.csi.ceph.com), or in
+# spec.driverSpecDefaults of the ceph-csi-operator-config OperatorConfig.
 #  kubectl create -f pool-write-affinity.yaml
 #################################################################################################################
 
@@ -107,7 +108,7 @@ parameters:
   # Select the pool whose primary zone matches the zone of the consuming pod.
   # Do not set the `pool` parameter when topologyConstrainedPools is used.
   # The domainLabel is the node topology label name without its topology.kubernetes.io/ prefix,
-  # matching the zones listed in CSI_TOPOLOGY_DOMAIN_LABELS.
+  # matching the labels listed in the domainLabels of the RBD Driver.
   topologyConstrainedPools: |
     [
       {"poolName": "replicapool-zone-a",
