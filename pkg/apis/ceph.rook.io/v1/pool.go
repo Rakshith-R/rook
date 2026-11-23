@@ -32,11 +32,19 @@ func (p *PoolSpec) IsHybridStoragePool() bool {
 	return p.Replicated.HybridStorage != nil
 }
 
+// IsWriteAffinityPool returns whether the pool pins the primary OSD to a failure domain with writeAffinity
+func (p *PoolSpec) IsWriteAffinityPool() bool {
+	return p.Replicated.WriteAffinity != nil && len(p.Replicated.WriteAffinity.FailureDomains) > 0
+}
+
 // ValidateCephBlockPool validates specifically a CephBlockPool's spec (not just any NamedPoolSpec)
 func ValidateCephBlockPool(p *CephBlockPool) error {
 	if p.Spec.Name == ".rgw.root" || p.Spec.Name == ".mgr" || p.Spec.Name == ".nfs" {
 		if p.Spec.IsErasureCoded() {
 			return errors.Errorf("invalid CephBlockPool spec: ceph built-in pool %q cannot be erasure coded", p.Spec.Name)
+		}
+		if p.Spec.IsWriteAffinityPool() {
+			return errors.Errorf("invalid CephBlockPool spec: ceph built-in pool %q does not support writeAffinity", p.Spec.Name)
 		}
 	}
 

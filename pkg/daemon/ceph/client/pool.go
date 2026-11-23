@@ -45,6 +45,11 @@ const (
 // until all in-flight pool reconciles have finished referencing it.
 var crushRuleMutex sync.RWMutex
 
+// crushMapMutex serializes the read-modify-write of the crush map done when a rule is added with crushtool.
+// Concurrent reconciles only hold the read lock of crushRuleMutex, so without it two reconciles could
+// inject crush maps that each miss the rule of the other, or allocate the same rule ID.
+var crushMapMutex sync.Mutex
+
 type CephStoragePoolSummary struct {
 	Name   string `json:"poolname"`
 	Number int    `json:"poolnum"`
@@ -465,12 +470,34 @@ func createReplicatedPoolForApp(context *clusterd.Context, clusterInfo *ClusterI
 		poolExists = true
 	}
 
-	if clusterSpec.IsStretchCluster() {
+	// A pool that used a write affinity rule and no longer has writeAffinity is moved back to the rule
+	// of its spec, which may not be the one of the plain replicated path below.
+	revertWriteAffinity := poolExists && !pool.IsWriteAffinityPool() && isWriteAffinityCrushRule(pool.Name, poolDetails.CrushRule) &&
+		pool.EnableCrushUpdates != nil && *pool.EnableCrushUpdates
+
+	if pool.IsWriteAffinityPool() {
+		if clusterSpec.IsStretchCluster() {
+			// Enabling stretch mode sets the default stretch rule on every existing pool, so wait for it
+			// before the pool gets its own rule.
+			if err := checkStretchModeEnabled(context, clusterInfo); err != nil {
+				return errors.Wrapf(err, "failed to configure write affinity pool %q", pool.Name)
+			}
+		}
+		crushRuleName = WriteAffinityCrushRuleName(clusterSpec, pool)
+		if err := createWriteAffinityCrushRule(context, clusterInfo, clusterSpec, crushRuleName, pool.PoolSpec); err != nil {
+			return errors.Wrapf(err, "failed to create write affinity crush rule %q", crushRuleName)
+		}
+	} else if clusterSpec.IsStretchCluster() {
 		// A stretch cluster enforces using the same crush rule for all pools.
 		// The stretch cluster rule is created initially by the operator when the stretch cluster is configured
 		// so there is no need to create a new crush rule for the pools here.
 		crushRuleName = defaultStretchCrushRuleName
 	} else if pool.IsHybridStoragePool() {
+		if revertWriteAffinity {
+			if err := deleteCrushRule(context, clusterInfo, crushRuleName); err != nil {
+				return errors.Wrapf(err, "failed to delete stale crush rule %q", crushRuleName)
+			}
+		}
 		// Create hybrid crush rule
 		err := createHybridCrushRule(context, clusterInfo, clusterSpec, crushRuleName, pool.PoolSpec)
 		if err != nil {
@@ -478,6 +505,12 @@ func createReplicatedPoolForApp(context *clusterd.Context, clusterInfo *ClusterI
 		}
 	} else {
 		if pool.Replicated.ReplicasPerFailureDomain > 1 {
+			if revertWriteAffinity {
+				// The rule may have been created for an older spec of the pool, recreate it
+				if err := deleteCrushRule(context, clusterInfo, crushRuleName); err != nil {
+					return errors.Wrapf(err, "failed to delete stale crush rule %q", crushRuleName)
+				}
+			}
 			// Create a two-step CRUSH rule for pools other than stretch clusters
 			err := createStretchCrushRule(context, clusterInfo, clusterSpec, crushRuleName, pool.PoolSpec)
 			if err != nil {
@@ -517,6 +550,13 @@ func createReplicatedPoolForApp(context *clusterd.Context, clusterInfo *ClusterI
 		}
 	}
 
+	// The plain replicated path moves pools off a write affinity rule in updatePoolCrushRuleLocked()
+	if poolExists && !checkFailureDomain && (pool.IsWriteAffinityPool() || revertWriteAffinity) {
+		if err := updateWriteAffinityCrushRule(context, clusterInfo, pool, poolDetails.CrushRule, crushRuleName); err != nil {
+			return err
+		}
+	}
+
 	// update the common pool properties
 	if err := setCommonPoolProperties(context, clusterInfo, pool); err != nil {
 		return err
@@ -524,10 +564,53 @@ func createReplicatedPoolForApp(context *clusterd.Context, clusterInfo *ClusterI
 
 	logger.Infof("reconciling replicated pool %s succeeded", pool.Name)
 
-	if checkFailureDomain || pool.PoolSpec.DeviceClass != "" {
+	// updatePoolCrushRuleLocked() only understands single take rules, it would replace a write affinity rule
+	if !pool.IsWriteAffinityPool() && (checkFailureDomain || pool.PoolSpec.DeviceClass != "") {
 		if err = updatePoolCrushRuleLocked(context, clusterInfo, clusterSpec, pool); err != nil {
 			return errors.Wrapf(err, "failed to update crush rule for pool %q", pool.Name)
 		}
+	}
+	return nil
+}
+
+// updateWriteAffinityCrushRule sets the desired crush rule on an existing pool when crush updates are enabled,
+// and removes the write affinity rule the pool no longer uses.
+func updateWriteAffinityCrushRule(context *clusterd.Context, clusterInfo *ClusterInfo, pool cephv1.NamedPoolSpec, currentRule, desiredRule string) error {
+	if currentRule == desiredRule {
+		return nil
+	}
+	if pool.EnableCrushUpdates == nil || !*pool.EnableCrushUpdates {
+		log.NamespacedWarning(clusterInfo.Namespace, logger, "pool %q uses crush rule %q instead of the desired rule %q. set enableCrushUpdates to apply the change", pool.Name, currentRule, desiredRule)
+		return nil
+	}
+
+	logger.Infof("updating crush rule of pool %q from %q to %q", pool.Name, currentRule, desiredRule)
+	if err := setCrushRule(context, clusterInfo, pool.Name, desiredRule); err != nil {
+		return errors.Wrapf(err, "failed to set crush rule on pool %q", pool.Name)
+	}
+	deleteUnusedWriteAffinityCrushRule(context, clusterInfo, pool.Name, currentRule)
+	return nil
+}
+
+// deleteUnusedWriteAffinityCrushRule removes a write affinity rule after its pool moved to another rule. Write
+// affinity rules are only used by the pool they are named after.
+func deleteUnusedWriteAffinityCrushRule(context *clusterd.Context, clusterInfo *ClusterInfo, poolName, ruleName string) {
+	if !isWriteAffinityCrushRule(poolName, ruleName) {
+		return
+	}
+	if err := deleteCrushRule(context, clusterInfo, ruleName); err != nil {
+		logger.Warningf("failed to delete unused crush rule %q of pool %q. %v", ruleName, poolName, err)
+	}
+}
+
+// checkStretchModeEnabled returns an error until Ceph stretch mode is enabled
+func checkStretchModeEnabled(context *clusterd.Context, clusterInfo *ClusterInfo) error {
+	monDump, err := GetMonDump(context, clusterInfo)
+	if err != nil {
+		return errors.Wrap(err, "failed to check if stretch mode is enabled")
+	}
+	if !monDump.StretchMode {
+		return errors.New("waiting for stretch mode to be enabled")
 	}
 	return nil
 }
@@ -602,6 +685,7 @@ func updatePoolCrushRuleLocked(context *clusterd.Context, clusterInfo *ClusterIn
 	if err := setCrushRule(context, clusterInfo, pool.Name, crushRuleName); err != nil {
 		return errors.Wrapf(err, "failed to set crush rule on pool %q", pool.Name)
 	}
+	deleteUnusedWriteAffinityCrushRule(context, clusterInfo, pool.Name, details.CrushRule)
 
 	logger.Infof("Successfully updated pool %q failure domain to %q", pool.Name, pool.FailureDomain)
 	return nil
@@ -743,20 +827,9 @@ func createStretchCrushRule(context *clusterd.Context, clusterInfo *ClusterInfo,
 		return errors.Errorf("failure and subfailure domains cannot be identical, current is %q", pool.FailureDomain)
 	}
 
-	crushMap, err := getCurrentCrushMap(context, clusterInfo)
-	if err != nil {
-		return errors.Wrap(err, "failed to get current crush map")
-	}
-
-	if crushRuleExists(crushMap, ruleName) {
-		logger.Debugf("CRUSH rule %q already exists", ruleName)
-		return nil
-	}
-
-	// Build plain text rule
-	ruleset := buildTwoStepPlainCrushRule(crushMap, ruleName, pool)
-
-	return updateCrushMap(context, clusterInfo, ruleset)
+	return addCrushRule(context, clusterInfo, ruleName, func(crushMap CrushMap) string {
+		return buildTwoStepPlainCrushRule(crushMap, ruleName, pool)
+	})
 }
 
 func createHybridCrushRule(context *clusterd.Context, clusterInfo *ClusterInfo, clusterSpec *cephv1.ClusterSpec, ruleName string, pool cephv1.PoolSpec) error {
@@ -770,6 +843,23 @@ func createHybridCrushRule(context *clusterd.Context, clusterInfo *ClusterInfo, 
 		pool.FailureDomain = cephv1.DefaultFailureDomain
 	}
 
+	return addCrushRule(context, clusterInfo, ruleName, func(crushMap CrushMap) string {
+		return buildTwoStepHybridCrushRule(crushMap, ruleName, pool)
+	})
+}
+
+func createWriteAffinityCrushRule(context *clusterd.Context, clusterInfo *ClusterInfo, clusterSpec *cephv1.ClusterSpec, ruleName string, pool cephv1.PoolSpec) error {
+	steps := buildWriteAffinityCrushSteps(clusterSpec, pool)
+	return addCrushRule(context, clusterInfo, ruleName, func(crushMap CrushMap) string {
+		return buildWriteAffinityCrushRule(crushMap, ruleName, steps)
+	})
+}
+
+// addCrushRule adds the rule built by buildRule to the crush map if no rule with that name exists
+func addCrushRule(context *clusterd.Context, clusterInfo *ClusterInfo, ruleName string, buildRule func(CrushMap) string) error {
+	crushMapMutex.Lock()
+	defer crushMapMutex.Unlock()
+
 	crushMap, err := getCurrentCrushMap(context, clusterInfo)
 	if err != nil {
 		return errors.Wrap(err, "failed to get current crush map")
@@ -780,9 +870,7 @@ func createHybridCrushRule(context *clusterd.Context, clusterInfo *ClusterInfo, 
 		return nil
 	}
 
-	ruleset := buildTwoStepHybridCrushRule(crushMap, ruleName, pool)
-
-	return updateCrushMap(context, clusterInfo, ruleset)
+	return updateCrushMap(context, clusterInfo, buildRule(crushMap))
 }
 
 func updateCrushMap(context *clusterd.Context, clusterInfo *ClusterInfo, ruleset string) error {

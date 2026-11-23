@@ -200,6 +200,103 @@ spec:
     subFailureDomain: rack
 ```
 
+### Write Affinity
+
+In a geographically distributed cluster, an application may benefit from keeping the
+primary OSD of each placement group (PG) of its pool close to the application. `writeAffinity`
+places the replicas of a replicated pool in an explicit, ordered list of CRUSH failure domains.
+The primary OSD of every PG is chosen from the first entry of the list. If the first failure
+domain is unavailable, the primary moves to the next entry.
+
+```yaml
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: replicapool
+  namespace: rook-ceph
+spec:
+  # The CRUSH bucket type of every entry in writeAffinity.failureDomains
+  failureDomain: zone
+  replicated:
+    size: 3
+    writeAffinity:
+      failureDomains:
+        - us-east-1a
+        - us-east-1b
+        - us-east-1c
+```
+
+For this pool, Rook generates a CRUSH rule named `<pool>_wa_<hash>`, where `<hash>` is a
+short hash of the rule steps. The rule has one take/chooseleaf/emit block per entry of
+`failureDomains`, in list order:
+
+```text
+rule replicapool_wa_a1b2c3d4 {
+        id 5
+        type replicated
+        step take us-east-1a
+        step chooseleaf firstn 1 type host
+        step emit
+        step take us-east-1b
+        step chooseleaf firstn 1 type host
+        step emit
+        step take us-east-1c
+        step chooseleaf firstn 1 type host
+        step emit
+}
+```
+
+`replicated.size` must equal the number of `failureDomains` entries multiplied by
+`replicasPerFailureDomain` (default `1`). Each entry is a CRUSH bucket name of the type set in
+`failureDomain` (which is required), and `subFailureDomain` selects the leaf bucket type inside
+each entry (default `host`). Names are normalized by replacing `.` with `-`, and every bucket
+must exist below the `crushRoot` (or the default root). When `deviceClass` is set, every listed
+bucket must contain OSDs of that class.
+
+`writeAffinity` is only supported for `CephBlockPool`. It cannot be combined with
+`hybridStorage`, and it is rejected for `CephFilesystem`, `CephObjectStore`, `CephObjectZone`,
+and the built-in pools `.mgr`, `.nfs`, and `.rgw.root`.
+
+!!! note
+    The rule is only applied to an existing pool when `enableCrushUpdates` is `true`. Otherwise
+    the pool keeps its current rule and Rook emits a warning event `CrushRuleNotUpdated` and a
+    warning in the operator log.
+
+Enabling `writeAffinity` on an existing pool moves data to satisfy the new rule. Reordering the
+`failureDomains` list only changes which failure domain holds the primaries and does not move
+data. When the rule is switched, Rook removes the old `_wa_` rule. Removing `writeAffinity` with
+`enableCrushUpdates` set returns the pool to the CRUSH rule of its spec. The first entry of
+`failureDomains` is reported in the CephBlockPool status:
+
+```yaml
+status:
+  info:
+    primaryFailureDomain: us-east-1a
+```
+
+!!! warning
+    Write affinity keeps the primary OSD in the first zone. Review the client-side caveats
+    below before using it.
+
+* When a StorageClass uses `topologyConstrainedPools`, ceph-csi pins a PV to the zone used at
+    provisioning time. If that zone fails, the pod using the PV cannot move to another zone.
+* ceph-csi rejects restoring a snapshot into a different zone than the zone of the snapshot's
+    pool. PVC-to-PVC clones across zones are allowed.
+* The PG autoscaler sizes the pool against the OSDs of the first zone only. Ceph versions
+    before v20.3.1 (Squid v19, and Tentacle up to v20.3.0) skip autoscaling for overlapping
+    roots. Set `pg_num` explicitly through `parameters`, or set `pg_autoscale_mode: "off"`, on
+    those versions.
+* `ceph df` under-reports MAX AVAIL on Squid v19. This is corrected on v20 and later.
+* Keep the OSD `primary-affinity` at its default value. The balancer in upmap mode and the read
+    balancing modes keep the primaries in the first zone.
+
+#### Stretch Cluster
+
+In a stretch cluster, `writeAffinity` must list exactly the two non-arbiter zones of the
+cluster, `failureDomain` must be the stretch cluster failure domain, `size` must be `4`,
+`replicasPerFailureDomain` must be `2`, and `deviceClass` is not allowed. Rook waits until
+Ceph stretch mode is enabled before creating the pool.
+
 ## Pool Settings
 
 ### Metadata
@@ -215,6 +312,8 @@ spec:
     * `replicasPerFailureDomain`: The number of replicas to place in a given failure domain. For instance, if the failure domain is `datacenter` (as in a stretched cluster),
 then you will have two replicas per `datacenter` where each replica ends up on a different host. This gives you a total of four replicas and for this, the `size` must be set to 4. The default value is 1.
     * `subFailureDomain`: Name of the CRUSH bucket representing a sub-failure domain. In a stretched configuration this option represent the leaf CRUSH bucket type where replicas will be placed. Imagine the cluster is stretched across two datacenters, you can then have two copies per `datacenter` and each copy on a different CRUSH bucket. The default is `host`.
+    * `writeAffinity`: Places the replicas of a replicated pool in an explicit, ordered list of CRUSH failure domains. The primary OSD of every PG is chosen from the first entry of the list. Only supported for `CephBlockPool`, cannot be combined with `hybridStorage`, and is rejected for the built-in pools `.mgr`, `.nfs`, and `.rgw.root`. See [write affinity](#write-affinity) for details.
+        * `failureDomains`: Ordered list of 2 to 16 unique CRUSH bucket names of the type set in `failureDomain` (required). Each name must be 1 to 63 characters and is normalized by replacing `.` with `-`. Every bucket must exist below the `crushRoot` (or the default root), and when `deviceClass` is set, every bucket must contain OSDs of that class. `replicated.size` must equal the number of entries multiplied by `replicasPerFailureDomain` (default `1`).
 * `erasureCoded`: Settings for an erasure-coded pool. If specified, `replicated` settings cannot be specified. See below for more details on [erasure coding](#erasure-coding).
     * `dataChunks`: Number of chunks to divide the original object into
     * `codingChunks`: Number of coding chunks to generate

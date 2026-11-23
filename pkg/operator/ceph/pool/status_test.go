@@ -79,3 +79,31 @@ func TestUpdateStatusInfo(t *testing.T) {
 	statusInfo = cephBlockPoolErasureCoded.Status.Info
 	assert.NotEmpty(t, statusInfo[opcontroller.RBDMirrorBootstrapPeerSecretName])
 }
+
+func TestUpdateStatusInfoPrimaryFailureDomain(t *testing.T) {
+	cephBlockPool := &cephv1.CephBlockPool{
+		Spec: cephv1.NamedBlockPoolSpec{
+			PoolSpec: cephv1.PoolSpec{
+				FailureDomain: "zone",
+				Replicated: cephv1.ReplicatedSpec{
+					Size: 3,
+					WriteAffinity: &cephv1.WriteAffinitySpec{
+						FailureDomains: []string{"a", "b", "c"},
+					},
+				},
+			},
+		},
+		Status: &cephv1.CephBlockPoolStatus{
+			Phase: cephv1.ConditionProgressing,
+		},
+	}
+
+	updateStatusInfo(cephBlockPool)
+	assert.Equal(t, "a", cephBlockPool.Status.Info["primaryFailureDomain"])
+
+	// the primary failure domain is only reported for write affinity pools
+	cephBlockPool.Spec.Replicated.WriteAffinity = nil
+	updateStatusInfo(cephBlockPool)
+	_, ok := cephBlockPool.Status.Info["primaryFailureDomain"]
+	assert.False(t, ok)
+}

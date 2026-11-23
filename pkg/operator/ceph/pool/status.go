@@ -99,6 +99,10 @@ func updateStatusInfo(cephBlockPool *cephv1.CephBlockPool) {
 		m["failureDomain"] = cephv1.DefaultFailureDomain
 	}
 
+	if cephBlockPool.Spec.IsWriteAffinityPool() {
+		m["primaryFailureDomain"] = cephBlockPool.Spec.Replicated.WriteAffinity.FailureDomains[0]
+	}
+
 	cephBlockPool.Status.Info = m
 }
 

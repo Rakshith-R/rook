@@ -43,24 +43,27 @@ type CrushMap struct {
 		ID   int    `json:"type_id"`
 		Name string `json:"name"`
 	} `json:"types"`
-	Buckets []struct {
-		ID       int    `json:"id"`
-		Name     string `json:"name"`
-		TypeID   int    `json:"type_id"`
-		TypeName string `json:"type_name"`
-		Weight   int    `json:"weight"`
-		Alg      string `json:"alg"`
-		Hash     string `json:"hash"`
-		Items    []struct {
-			ID     int `json:"id"`
-			Weight int `json:"weight"`
-			Pos    int `json:"pos"`
-		} `json:"items"`
-	} `json:"buckets"`
-	Rules    []ruleSpec `json:"rules"`
+	Buckets  []CrushBucket `json:"buckets"`
+	Rules    []ruleSpec    `json:"rules"`
 	Tunables struct {
 		// Add if necessary
 	} `json:"tunables"`
+}
+
+// CrushBucket is a go representation of a bucket of the Ceph crush map
+type CrushBucket struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	TypeID   int    `json:"type_id"`
+	TypeName string `json:"type_name"`
+	Weight   int    `json:"weight"`
+	Alg      string `json:"alg"`
+	Hash     string `json:"hash"`
+	Items    []struct {
+		ID     int `json:"id"`
+		Weight int `json:"weight"`
+		Pos    int `json:"pos"`
+	} `json:"items"`
 }
 
 type ruleSpec struct {

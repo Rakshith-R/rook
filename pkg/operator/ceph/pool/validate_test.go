@@ -18,6 +18,7 @@ limitations under the License.
 package pool
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -255,6 +256,245 @@ func TestValidateCrushProperties(t *testing.T) {
 	p.Spec.Replicated.ReplicasPerFailureDomain = 2
 	err = validatePool(context, clusterInfo, clusterSpec, p)
 	assert.NoError(t, err)
+}
+
+// writeAffinityCrushMapJSON is a crush map with a default root holding zones a, b, c, us-east, and
+// a separate alt root holding zone x. Zones a and b only have ssd OSDs while zone c only has hdd OSDs.
+const writeAffinityCrushMapJSON = `{
+  "devices": [
+    {"id": 0, "name": "osd.0", "class": "ssd"},
+    {"id": 1, "name": "osd.1", "class": "ssd"},
+    {"id": 2, "name": "osd.2", "class": "ssd"},
+    {"id": 3, "name": "osd.3", "class": "ssd"},
+    {"id": 4, "name": "osd.4", "class": "hdd"},
+    {"id": 5, "name": "osd.5", "class": "hdd"},
+    {"id": 6, "name": "osd.6", "class": "ssd"},
+    {"id": 7, "name": "osd.7", "class": "hdd"}
+  ],
+  "types": [
+    {"type_id": 0, "name": "osd"},
+    {"type_id": 1, "name": "host"},
+    {"type_id": 9, "name": "zone"},
+    {"type_id": 10, "name": "root"}
+  ],
+  "buckets": [
+    {"id": -1, "name": "default", "type_id": 10, "type_name": "root", "items": [{"id": -10, "weight": 1, "pos": 0}, {"id": -11, "weight": 1, "pos": 1}, {"id": -12, "weight": 1, "pos": 2}, {"id": -13, "weight": 1, "pos": 3}]},
+    {"id": -2, "name": "alt", "type_id": 10, "type_name": "root", "items": [{"id": -30, "weight": 1, "pos": 0}]},
+    {"id": -10, "name": "a", "type_id": 9, "type_name": "zone", "items": [{"id": -20, "weight": 1, "pos": 0}, {"id": -21, "weight": 1, "pos": 1}]},
+    {"id": -11, "name": "b", "type_id": 9, "type_name": "zone", "items": [{"id": -22, "weight": 1, "pos": 0}, {"id": -23, "weight": 1, "pos": 1}]},
+    {"id": -12, "name": "c", "type_id": 9, "type_name": "zone", "items": [{"id": -24, "weight": 1, "pos": 0}, {"id": -25, "weight": 1, "pos": 1}]},
+    {"id": -13, "name": "us-east", "type_id": 9, "type_name": "zone", "items": [{"id": -27, "weight": 1, "pos": 0}]},
+    {"id": -30, "name": "x", "type_id": 9, "type_name": "zone", "items": [{"id": -26, "weight": 1, "pos": 0}]},
+    {"id": -20, "name": "a1", "type_id": 1, "type_name": "host", "items": [{"id": 0, "weight": 1, "pos": 0}]},
+    {"id": -21, "name": "a2", "type_id": 1, "type_name": "host", "items": [{"id": 1, "weight": 1, "pos": 0}]},
+    {"id": -22, "name": "b1", "type_id": 1, "type_name": "host", "items": [{"id": 2, "weight": 1, "pos": 0}]},
+    {"id": -23, "name": "b2", "type_id": 1, "type_name": "host", "items": [{"id": 3, "weight": 1, "pos": 0}]},
+    {"id": -24, "name": "c1", "type_id": 1, "type_name": "host", "items": [{"id": 4, "weight": 1, "pos": 0}]},
+    {"id": -25, "name": "c2", "type_id": 1, "type_name": "host", "items": [{"id": 5, "weight": 1, "pos": 0}]},
+    {"id": -27, "name": "us-east1", "type_id": 1, "type_name": "host", "items": [{"id": 6, "weight": 1, "pos": 0}]},
+    {"id": -26, "name": "x1", "type_id": 1, "type_name": "host", "items": [{"id": 7, "weight": 1, "pos": 0}]}
+  ]
+}`
+
+func writeAffinityCrushMap(t *testing.T) cephclient.CrushMap {
+	t.Helper()
+	var crush cephclient.CrushMap
+	assert.NoError(t, json.Unmarshal([]byte(writeAffinityCrushMapJSON), &crush))
+	return crush
+}
+
+func writeAffinityPoolSpec(failureDomain string, size, replicasPerFailureDomain uint, failureDomains ...string) cephv1.PoolSpec {
+	return cephv1.PoolSpec{
+		FailureDomain: failureDomain,
+		Replicated: cephv1.ReplicatedSpec{
+			Size:                     size,
+			ReplicasPerFailureDomain: replicasPerFailureDomain,
+			WriteAffinity:            &cephv1.WriteAffinitySpec{FailureDomains: failureDomains},
+		},
+	}
+}
+
+func TestValidateWriteAffinity(t *testing.T) {
+	crush := writeAffinityCrushMap(t)
+	clusterSpec := &cephv1.ClusterSpec{}
+
+	deviceClassSpec := writeAffinityPoolSpec("zone", 3, 0, "a", "b", "c")
+	deviceClassSpec.DeviceClass = "ssd"
+
+	tests := []struct {
+		name        string
+		spec        cephv1.PoolSpec
+		expectedErr string
+	}{
+		{
+			name: "valid spec",
+			spec: writeAffinityPoolSpec("zone", 3, 0, "a", "b", "c"),
+		},
+		{
+			name:        "missing failureDomain",
+			spec:        writeAffinityPoolSpec("", 3, 0, "a", "b", "c"),
+			expectedErr: "failureDomain must be set",
+		},
+		{
+			name: "non replicated pool",
+			spec: cephv1.PoolSpec{
+				Replicated: cephv1.ReplicatedSpec{
+					WriteAffinity: &cephv1.WriteAffinitySpec{FailureDomains: []string{"a", "b"}},
+				},
+			},
+			expectedErr: "writeAffinity requires a replicated pool",
+		},
+		{
+			name:        "size mismatch",
+			spec:        writeAffinityPoolSpec("zone", 4, 0, "a", "b", "c"),
+			expectedErr: "size 4 must equal the number of failureDomains (3) multiplied by replicasPerFailureDomain (1)",
+		},
+		{
+			name:        "failureDomain equals default subFailureDomain",
+			spec:        writeAffinityPoolSpec("host", 3, 0, "a1", "a2", "b1"),
+			expectedErr: `failureDomain and subFailureDomain "host" cannot be identical`,
+		},
+		{
+			name:        "bucket not found",
+			spec:        writeAffinityPoolSpec("zone", 3, 0, "a", "b", "nope"),
+			expectedErr: `crush bucket "nope" of type "zone" not found`,
+		},
+		{
+			name:        "bucket of wrong type",
+			spec:        writeAffinityPoolSpec("zone", 3, 0, "a", "b", "a1"),
+			expectedErr: `crush bucket "a1" of type "zone" not found`,
+		},
+		{
+			name:        "bucket not under crush root",
+			spec:        writeAffinityPoolSpec("zone", 3, 0, "a", "b", "x"),
+			expectedErr: `crush bucket "x" is not under the crush root "default"`,
+		},
+		{
+			name:        "device class missing from a failure domain",
+			spec:        deviceClassSpec,
+			expectedErr: `crush bucket "c" has no OSDs of device class "ssd"`,
+		},
+		{
+			name: "failure domain name is normalized",
+			spec: writeAffinityPoolSpec("zone", 3, 0, "us.east", "b", "a"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateWriteAffinity(clusterSpec, &tt.spec, crush)
+			if tt.expectedErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectedErr)
+		})
+	}
+}
+
+func TestValidateWriteAffinityWithCrushDump(t *testing.T) {
+	executor := &exectest.MockExecutor{}
+	executor.MockExecuteCommandWithOutput = func(command string, args ...string) (string, error) {
+		if args[0] == "osd" && args[1] == "crush" && args[2] == "dump" {
+			return writeAffinityCrushMapJSON, nil
+		}
+		return "", errors.Errorf("unexpected ceph command %q", args)
+	}
+	context := &clusterd.Context{Executor: executor}
+	clusterInfo := cephclient.AdminTestClusterInfo("mycluster")
+	clusterSpec := &cephv1.ClusterSpec{}
+
+	newPool := func(failureDomains ...string) *cephv1.CephBlockPool {
+		return &cephv1.CephBlockPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "mypool", Namespace: clusterInfo.Namespace},
+			Spec: cephv1.NamedBlockPoolSpec{
+				PoolSpec: writeAffinityPoolSpec("zone", 3, 0, failureDomains...),
+			},
+		}
+	}
+
+	t.Run("valid spec", func(t *testing.T) {
+		assert.NoError(t, validatePool(context, clusterInfo, clusterSpec, newPool("a", "b", "c")))
+	})
+
+	t.Run("bucket not under crush root", func(t *testing.T) {
+		err := validatePool(context, clusterInfo, clusterSpec, newPool("a", "b", "x"))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), `crush bucket "x" is not under the crush root "default"`)
+	})
+}
+
+func TestValidateWriteAffinityStretchCluster(t *testing.T) {
+	crush := writeAffinityCrushMap(t)
+
+	newStretchClusterSpec := func(failureDomainLabel string) *cephv1.ClusterSpec {
+		return &cephv1.ClusterSpec{
+			Mon: cephv1.MonSpec{
+				StretchCluster: &cephv1.StretchClusterSpec{
+					FailureDomainLabel: failureDomainLabel,
+					Zones: []cephv1.MonZoneSpec{
+						{Name: "a"},
+						{Name: "b"},
+						{Name: "c", Arbiter: true},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("valid data zones", func(t *testing.T) {
+		spec := writeAffinityPoolSpec("zone", 4, 2, "a", "b")
+		assert.NoError(t, validateWriteAffinity(newStretchClusterSpec(""), &spec, crush))
+	})
+
+	t.Run("device class rejected", func(t *testing.T) {
+		spec := writeAffinityPoolSpec("zone", 4, 2, "a", "b")
+		spec.DeviceClass = "ssd"
+		err := validateWriteAffinity(newStretchClusterSpec(""), &spec, crush)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "deviceClass is not supported in a stretch cluster")
+	})
+
+	t.Run("arbiter zone rejected", func(t *testing.T) {
+		spec := writeAffinityPoolSpec("zone", 4, 2, "a", "c")
+		err := validateWriteAffinity(newStretchClusterSpec(""), &spec, crush)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failureDomains must be the non-arbiter stretch cluster zones [a b]")
+	})
+
+	t.Run("failureDomain other than zone rejected", func(t *testing.T) {
+		spec := writeAffinityPoolSpec("host", 4, 2, "a", "b")
+		spec.Replicated.SubFailureDomain = "osd"
+		err := validateWriteAffinity(newStretchClusterSpec(""), &spec, crush)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), `failureDomain must be the stretch cluster failure domain "zone"`)
+	})
+
+	t.Run("region failure domain label requires region failureDomain", func(t *testing.T) {
+		spec := writeAffinityPoolSpec("zone", 4, 2, "a", "b")
+		err := validateWriteAffinity(newStretchClusterSpec("topology.kubernetes.io/region"), &spec, crush)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), `failureDomain must be the stretch cluster failure domain "region"`)
+	})
+
+	t.Run("region failure domain label accepted with region failureDomain", func(t *testing.T) {
+		spec := writeAffinityPoolSpec("region", 4, 2, "a", "b")
+		assert.NoError(t, validateStretchWriteAffinity(newStretchClusterSpec("topology.kubernetes.io/region"), &spec))
+	})
+}
+
+func TestValidatePoolSpecRejectsWriteAffinity(t *testing.T) {
+	context := &clusterd.Context{}
+	clusterInfo := &cephclient.ClusterInfo{Namespace: "myns"}
+	clusterSpec := &cephv1.ClusterSpec{}
+
+	p := writeAffinityPoolSpec("zone", 2, 0, "a", "b")
+	err := ValidatePoolSpec(context, clusterInfo, clusterSpec, &p)
+	assert.EqualError(t, err, "writeAffinity is only supported for CephBlockPool")
+
+	p = cephv1.PoolSpec{Replicated: cephv1.ReplicatedSpec{Size: 3}}
+	assert.NoError(t, ValidatePoolSpec(context, clusterInfo, clusterSpec, &p))
 }
 
 func TestValidateDeviceClasses(t *testing.T) {

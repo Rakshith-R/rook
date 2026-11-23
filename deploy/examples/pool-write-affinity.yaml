@@ -1,0 +1,123 @@
+#################################################################################################################
+# Create three CephBlockPools whose primary OSDs are pinned to each of three zones, and a StorageClass that
+# provisions volumes in the pool whose primary zone matches the zone of the consuming pod.
+# Every pool keeps three replicas, one per zone; only the primary zone differs, since the order of the
+# writeAffinity.failureDomains list is rotated per pool.
+# A minimum of one OSD in each of the three zones is required. The nodes must carry the
+# topology.kubernetes.io/zone label with the values us-east-1a, us-east-1b and us-east-1c.
+# The CSI topology feature must be enabled by setting CSI_ENABLE_TOPOLOGY to "true" and
+# CSI_TOPOLOGY_DOMAIN_LABELS to "topology.kubernetes.io/zone" in the rook-ceph-operator-config ConfigMap.
+#  kubectl create -f pool-write-affinity.yaml
+#################################################################################################################
+
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: replicapool-zone-a
+  namespace: rook-ceph # namespace:cluster
+spec:
+  # The CRUSH bucket type of every entry in writeAffinity.failureDomains
+  failureDomain: zone
+  replicated:
+    size: 3
+    # The first entry holds the primary OSD of every PG
+    writeAffinity:
+      failureDomains:
+        - us-east-1a
+        - us-east-1b
+        - us-east-1c
+---
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: replicapool-zone-b
+  namespace: rook-ceph # namespace:cluster
+spec:
+  failureDomain: zone
+  replicated:
+    size: 3
+    writeAffinity:
+      failureDomains:
+        - us-east-1b
+        - us-east-1c
+        - us-east-1a
+---
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: replicapool-zone-c
+  namespace: rook-ceph # namespace:cluster
+spec:
+  failureDomain: zone
+  replicated:
+    size: 3
+    writeAffinity:
+      failureDomains:
+        - us-east-1c
+        - us-east-1a
+        - us-east-1b
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: rook-ceph-block-write-affinity
+provisioner: rook-ceph.rbd.csi.ceph.com # csi-provisioner-name
+parameters:
+  # clusterID is the namespace where the rook cluster is running
+  # If you change this namespace, also change the namespace below where the secret namespaces are defined
+  clusterID: rook-ceph # namespace:cluster
+
+  # RBD image format. Defaults to "2".
+  imageFormat: "2"
+
+  # RBD image features
+  # Available for imageFormat: "2". Older releases of CSI RBD
+  # support only the `layering` feature. The Linux kernel (KRBD) supports the
+  # full complement of features as of 5.4
+  # `layering` alone corresponds to Ceph's bitfield value of "2" ;
+  # `layering` + `fast-diff` + `object-map` + `deep-flatten` + `exclusive-lock` together
+  # correspond to Ceph's OR'd bitfield value of "63". Here we use
+  # a symbolic, comma-separated format:
+  # For 5.4 or later kernels:
+  #imageFeatures: layering,fast-diff,object-map,deep-flatten,exclusive-lock
+  # For 5.3 or earlier kernels:
+  imageFeatures: layering
+
+  # The secrets contain Ceph admin credentials. These are generated automatically by the operator
+  # in the same namespace as the cluster.
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph # namespace:cluster
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph # namespace:cluster
+  csi.storage.k8s.io/controller-publish-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-publish-secret-namespace: rook-ceph # namespace:cluster
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+  csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph # namespace:cluster
+  # Needed for VolumeAttributesClass (dynamic QoS modification on existing volumes).
+  csi.storage.k8s.io/controller-modify-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-modify-secret-namespace: rook-ceph # namespace:cluster
+  # Needed for krbd QoS enforcement.
+  csi.storage.k8s.io/node-publish-secret-name: rook-csi-rbd-node
+  csi.storage.k8s.io/node-publish-secret-namespace: rook-ceph # namespace:cluster
+  # Specify the filesystem type of the volume. If not specified, csi-provisioner
+  # will set default as `ext4`. Note that `xfs` is not recommended due to potential deadlock
+  # in hyperconverged settings where the volume is mounted on the same node as the osds.
+  csi.storage.k8s.io/fstype: ext4
+
+  # Select the pool whose primary zone matches the zone of the consuming pod.
+  # Do not set the `pool` parameter when topologyConstrainedPools is used.
+  # The domainLabel is the node topology label name without its topology.kubernetes.io/ prefix,
+  # matching the zones listed in CSI_TOPOLOGY_DOMAIN_LABELS.
+  topologyConstrainedPools: |
+    [
+      {"poolName": "replicapool-zone-a",
+       "domainSegments": [{"domainLabel": "zone", "value": "us-east-1a"}]},
+      {"poolName": "replicapool-zone-b",
+       "domainSegments": [{"domainLabel": "zone", "value": "us-east-1b"}]},
+      {"poolName": "replicapool-zone-c",
+       "domainSegments": [{"domainLabel": "zone", "value": "us-east-1c"}]}
+    ]
+# Required for the CSI topology feature to pick the pool that matches the zone of the consuming pod.
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete

@@ -18,11 +18,15 @@ limitations under the License.
 package pool
 
 import (
+	"slices"
+	"strings"
+
 	"github.com/pkg/errors"
 	cephv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
 	"github.com/rook/rook/pkg/clusterd"
 	cephclient "github.com/rook/rook/pkg/daemon/ceph/client"
 	"github.com/rook/rook/pkg/util/log"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // validatePool validates the pool arguments
@@ -38,14 +42,23 @@ func validatePool(context *clusterd.Context, clusterInfo *cephclient.ClusterInfo
 		return err
 	}
 
-	if err := ValidatePoolSpec(context, clusterInfo, clusterSpec, &p.Spec.PoolSpec); err != nil {
+	if err := validatePoolSpec(context, clusterInfo, clusterSpec, &p.Spec.PoolSpec); err != nil {
 		return err
 	}
 	return nil
 }
 
-// ValidatePoolSpec validates the Ceph block pool spec CR
+// ValidatePoolSpec validates the spec of a pool of a CephFilesystem, CephObjectStore or CephObjectZone
 func ValidatePoolSpec(context *clusterd.Context, clusterInfo *cephclient.ClusterInfo, clusterSpec *cephv1.ClusterSpec, p *cephv1.PoolSpec) error {
+	// There is no client side zone pinning for these pools
+	if p.IsWriteAffinityPool() {
+		return errors.New("writeAffinity is only supported for CephBlockPool")
+	}
+	return validatePoolSpec(context, clusterInfo, clusterSpec, p)
+}
+
+// validatePoolSpec validates the spec of any pool
+func validatePoolSpec(context *clusterd.Context, clusterInfo *cephclient.ClusterInfo, clusterSpec *cephv1.ClusterSpec, p *cephv1.PoolSpec) error {
 	if p.IsHybridStoragePool() {
 		err := validateDeviceClasses(context, clusterInfo, p)
 		if err != nil {
@@ -123,6 +136,12 @@ func ValidatePoolSpec(context *clusterd.Context, clusterInfo *cephclient.Cluster
 		}
 		if !found {
 			return errors.Errorf("unrecognized crush sub domain %s", p.Replicated.SubFailureDomain)
+		}
+	}
+
+	if p.IsWriteAffinityPool() {
+		if err := validateWriteAffinity(clusterSpec, p, crush); err != nil {
+			return errors.Wrap(err, "invalid writeAffinity")
 		}
 	}
 
@@ -213,4 +232,142 @@ func validateDeviceClassOSDs(context *clusterd.Context, clusterInfo *cephclient.
 	}
 
 	return nil
+}
+
+// validateWriteAffinity validates the writeAffinity settings against the cluster spec and the crush map. The
+// crush map is only populated when the pool failureDomain is set.
+func validateWriteAffinity(clusterSpec *cephv1.ClusterSpec, p *cephv1.PoolSpec, crush cephclient.CrushMap) error {
+	if !p.IsReplicated() || p.IsErasureCoded() {
+		return errors.New("writeAffinity requires a replicated pool")
+	}
+	if p.IsHybridStoragePool() {
+		return errors.New("writeAffinity and hybridStorage cannot be specified together")
+	}
+	if p.FailureDomain == "" {
+		return errors.New("failureDomain must be set")
+	}
+	subFailureDomain := cephclient.WriteAffinitySubFailureDomain(clusterSpec, *p)
+	if subFailureDomain == p.FailureDomain {
+		return errors.Errorf("failureDomain and subFailureDomain %q cannot be identical", subFailureDomain)
+	}
+	failureDomains := p.Replicated.WriteAffinity.FailureDomains
+	replicas := max(p.Replicated.ReplicasPerFailureDomain, 1)
+	if p.Replicated.Size != uint(len(failureDomains))*replicas {
+		return errors.Errorf("size %d must equal the number of failureDomains (%d) multiplied by replicasPerFailureDomain (%d)", p.Replicated.Size, len(failureDomains), replicas)
+	}
+
+	if clusterSpec.IsStretchCluster() {
+		if err := validateStretchWriteAffinity(clusterSpec, p); err != nil {
+			return err
+		}
+	}
+
+	crushRoot := p.CrushRoot
+	if crushRoot == "" {
+		crushRoot = cephclient.GetCrushRootFromSpec(clusterSpec)
+	}
+	underRoot := crushSubtree(crush, crushRoot)
+	seen := map[string]bool{}
+	for _, failureDomain := range failureDomains {
+		name := cephclient.NormalizeCrushName(failureDomain)
+		if seen[name] {
+			return errors.Errorf("failure domain %q is listed more than once", failureDomain)
+		}
+		seen[name] = true
+
+		bucket := findCrushBucket(crush, name)
+		if bucket == nil || bucket.TypeName != p.FailureDomain {
+			return errors.Errorf("crush bucket %q of type %q not found", name, p.FailureDomain)
+		}
+		if !underRoot[bucket.ID] {
+			return errors.Errorf("crush bucket %q is not under the crush root %q", name, crushRoot)
+		}
+		if p.DeviceClass != "" && !hasDeviceClass(crush, crushSubtree(crush, name), p.DeviceClass) {
+			return errors.Errorf("crush bucket %q has no OSDs of device class %q", name, p.DeviceClass)
+		}
+	}
+	return nil
+}
+
+// validateStretchWriteAffinity checks that a write affinity pool in a stretch cluster spans both data zones
+func validateStretchWriteAffinity(clusterSpec *cephv1.ClusterSpec, p *cephv1.PoolSpec) error {
+	// PGs of a device class rule fail to peer in degraded stretch mode
+	if p.DeviceClass != "" {
+		return errors.New("deviceClass is not supported in a stretch cluster")
+	}
+
+	stretchFailureDomain := corev1.LabelZoneFailureDomainStable
+	if clusterSpec.Mon.StretchCluster.FailureDomainLabel != "" {
+		stretchFailureDomain = clusterSpec.Mon.StretchCluster.FailureDomainLabel
+	}
+	if _, after, found := strings.Cut(stretchFailureDomain, "/"); found {
+		stretchFailureDomain = after
+	}
+	if p.FailureDomain != stretchFailureDomain {
+		return errors.Errorf("failureDomain must be the stretch cluster failure domain %q", stretchFailureDomain)
+	}
+
+	dataZones := []string{}
+	for _, zone := range clusterSpec.Mon.StretchCluster.Zones {
+		if !zone.Arbiter {
+			dataZones = append(dataZones, cephclient.NormalizeCrushName(zone.Name))
+		}
+	}
+	failureDomains := []string{}
+	for _, failureDomain := range p.Replicated.WriteAffinity.FailureDomains {
+		failureDomains = append(failureDomains, cephclient.NormalizeCrushName(failureDomain))
+	}
+	slices.Sort(dataZones)
+	slices.Sort(failureDomains)
+	if !slices.Equal(dataZones, failureDomains) {
+		return errors.Errorf("failureDomains must be the non-arbiter stretch cluster zones %v", dataZones)
+	}
+	return nil
+}
+
+func findCrushBucket(crush cephclient.CrushMap, name string) *cephclient.CrushBucket {
+	for i := range crush.Buckets {
+		if crush.Buckets[i].Name == name {
+			return &crush.Buckets[i]
+		}
+	}
+	return nil
+}
+
+// crushSubtree returns the IDs of all buckets and devices below the named bucket, including the bucket itself
+func crushSubtree(crush cephclient.CrushMap, name string) map[int]bool {
+	subtree := map[int]bool{}
+	bucket := findCrushBucket(crush, name)
+	if bucket == nil {
+		return subtree
+	}
+	byID := map[int]*cephclient.CrushBucket{}
+	for i := range crush.Buckets {
+		byID[crush.Buckets[i].ID] = &crush.Buckets[i]
+	}
+	queue := []*cephclient.CrushBucket{bucket}
+	subtree[bucket.ID] = true
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, item := range current.Items {
+			if subtree[item.ID] {
+				continue
+			}
+			subtree[item.ID] = true
+			if child, ok := byID[item.ID]; ok {
+				queue = append(queue, child)
+			}
+		}
+	}
+	return subtree
+}
+
+func hasDeviceClass(crush cephclient.CrushMap, subtree map[int]bool, deviceClass string) bool {
+	for _, device := range crush.Devices {
+		if subtree[device.ID] && device.Class == deviceClass {
+			return true
+		}
+	}
+	return false
 }
