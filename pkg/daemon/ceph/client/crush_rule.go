@@ -115,6 +115,34 @@ func isWriteAffinityCrushRule(poolName, ruleName string) bool {
 	return err == nil
 }
 
+// IsWriteAffinityCrushRule returns whether the rule is a write affinity rule of the pool
+func IsWriteAffinityCrushRule(poolName, ruleName string) bool {
+	return isWriteAffinityCrushRule(poolName, ruleName)
+}
+
+// GetWriteAffinityPrimary returns the bucket of the first take step of the crush rule of the pool, which holds
+// the primary OSDs, or "" if the pool does not use a write affinity rule
+func GetWriteAffinityPrimary(context *clusterd.Context, clusterInfo *ClusterInfo, poolName string) (string, error) {
+	details, err := GetPoolDetails(context, clusterInfo, poolName)
+	if err != nil {
+		return "", err
+	}
+	if !isWriteAffinityCrushRule(poolName, details.CrushRule) {
+		return "", nil
+	}
+	rule, err := getCrushRule(context, clusterInfo, details.CrushRule)
+	if err != nil {
+		return "", err
+	}
+	for _, step := range rule.Steps {
+		if step.Operation == "take" {
+			bucket, _, _ := strings.Cut(step.ItemName, "~")
+			return bucket, nil
+		}
+	}
+	return "", nil
+}
+
 func buildWriteAffinityCrushRule(crushMap CrushMap, ruleName, steps string) string {
 	return fmt.Sprintf("\nrule %s {\n        id %d\n        type replicated\n%s}\n", ruleName, generateRuleID(crushMap.Rules), steps)
 }

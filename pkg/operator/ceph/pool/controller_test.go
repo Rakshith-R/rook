@@ -667,6 +667,20 @@ func TestWriteAffinityCrushRuleMismatch(t *testing.T) {
 	t.Run("non write affinity pool", func(t *testing.T) {
 		p := pool
 		p.Replicated.WriteAffinity = nil
+		crushRule = "mypool"
+		assert.Equal(t, "", writeAffinityCrushRuleMismatch(context, clusterInfo, clusterSpec, p))
+	})
+
+	t.Run("removed write affinity keeps the old rule", func(t *testing.T) {
+		p := pool
+		p.Replicated.WriteAffinity = nil
+		crushRule = desiredRule
+		msg := writeAffinityCrushRuleMismatch(context, clusterInfo, clusterSpec, p)
+		assert.Contains(t, msg, desiredRule)
+		assert.Contains(t, msg, "enableCrushUpdates")
+
+		// the rule is switched during the reconcile when crush updates are enabled
+		p.EnableCrushUpdates = &[]bool{true}[0]
 		assert.Equal(t, "", writeAffinityCrushRuleMismatch(context, clusterInfo, clusterSpec, p))
 	})
 

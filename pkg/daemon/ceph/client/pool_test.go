@@ -851,7 +851,9 @@ func TestIsWriteAffinityCrushRule(t *testing.T) {
 // that change the cluster
 type writeAffinityTestExecutor struct {
 	currentRule  string
+	size         int
 	stretchMode  bool
+	sizeSet      []string
 	poolCreated  []string
 	ruleSet      []string
 	rulesRemoved []string
@@ -883,17 +885,28 @@ func (e *writeAffinityTestExecutor) context(t *testing.T) *clusterd.Context {
 			e.rulesCreated = append(e.rulesCreated, args[4])
 			return "", nil
 		case args[1] == "crush" && args[2] == "rule" && args[3] == "dump":
-			return `{"steps": [{"op":"take","item_name":"a"},{"op":"chooseleaf_firstn","type":"host"},{"op":"emit"}]}`, nil
+			if isWriteAffinityCrushRule("mypool", args[4]) {
+				return `{"steps": [{"op":"take","item_name":"a"},{"op":"chooseleaf_firstn","type":"host"},{"op":"emit"}]}`, nil
+			}
+			return `{"steps": [{"op":"take","item_name":"default"},{"op":"chooseleaf_firstn","type":"zone"},{"op":"emit"}]}`, nil
 		case args[1] == "pool" && args[2] == "get":
 			if e.currentRule == "" {
 				return "", errors.New("pool does not exist")
 			}
-			return fmt.Sprintf(`{"pool":"mypool","pool_id":1,"size":%d,"crush_rule":%q}`, 3, e.currentRule), nil
+			size := e.size
+			if size == 0 {
+				size = 3
+			}
+			return fmt.Sprintf(`{"pool":"mypool","pool_id":1,"size":%d,"crush_rule":%q}`, size, e.currentRule), nil
 		case args[1] == "pool" && args[2] == "create":
 			e.poolCreated = append(e.poolCreated, args[6])
 			return "", nil
 		case args[1] == "pool" && args[2] == "set" && args[4] == "crush_rule":
 			e.ruleSet = append(e.ruleSet, args[5])
+			e.currentRule = args[5]
+			return "", nil
+		case args[1] == "pool" && args[2] == "set" && args[4] == "size":
+			e.sizeSet = append(e.sizeSet, args[5])
 			return "", nil
 		case args[1] == "pool" && args[2] == "set":
 			return "", nil
@@ -954,6 +967,33 @@ func TestCreateWriteAffinityPool(t *testing.T) {
 		assert.Empty(t, e.ruleSet)
 		assert.Empty(t, e.rulesRemoved)
 		assert.Empty(t, e.rulesCreated)
+		assert.Equal(t, 0, e.crushMapSet, "the rule is only created when it can be applied")
+	})
+
+	t.Run("changed list without enableCrushUpdates does not create the rule", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd"}
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, newPool(), DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, e.crushMapSet)
+		assert.Empty(t, e.ruleSet)
+		assert.Empty(t, e.rulesRemoved)
+	})
+
+	t.Run("size change without enableCrushUpdates is rejected while the old rule is kept", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd"}
+		p := newPool()
+		p.Replicated = cephv1.ReplicatedSpec{Size: 4, WriteAffinity: &cephv1.WriteAffinitySpec{FailureDomains: []string{"a", "b", "c", "d"}}}
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.ErrorContains(t, err, "cannot change the size of pool")
+		assert.Empty(t, e.sizeSet)
+		assert.Empty(t, e.ruleSet)
+
+		// the size changes together with the rule when crush updates are enabled
+		p.EnableCrushUpdates = &enable
+		err = createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"4"}, e.sizeSet)
+		assert.Equal(t, []string{WriteAffinityCrushRuleName(clusterSpec, p)}, e.ruleSet)
 	})
 
 	t.Run("existing pool with enableCrushUpdates switches rule", func(t *testing.T) {
@@ -1033,5 +1073,18 @@ func TestCreateWriteAffinityPool(t *testing.T) {
 		assert.Equal(t, []string{"mypool_zone"}, e.rulesCreated)
 		assert.Equal(t, []string{"mypool_zone"}, e.ruleSet)
 		assert.Equal(t, []string{"mypool_wa_0123abcd"}, e.rulesRemoved)
+	})
+
+	t.Run("removing writeAffinity from a pool without failureDomain", func(t *testing.T) {
+		e := &writeAffinityTestExecutor{currentRule: "mypool_wa_0123abcd"}
+		p := newPool()
+		p.FailureDomain = ""
+		p.Replicated = cephv1.ReplicatedSpec{Size: 3}
+		p.EnableCrushUpdates = &enable
+		err := createReplicatedPoolForApp(e.context(t), AdminTestClusterInfo("mycluster"), clusterSpec, p, DefaultPGCount)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"mypool"}, e.rulesCreated)
+		assert.Equal(t, []string{"mypool"}, e.ruleSet)
+		assert.Equal(t, []string{"mypool", "mypool_wa_0123abcd"}, e.rulesRemoved)
 	})
 }

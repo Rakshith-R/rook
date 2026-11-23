@@ -47,7 +47,9 @@ var crushRuleMutex sync.RWMutex
 
 // crushMapMutex serializes the read-modify-write of the crush map done when a rule is added with crushtool.
 // Concurrent reconciles only hold the read lock of crushRuleMutex, so without it two reconciles could
-// inject crush maps that each miss the rule of the other, or allocate the same rule ID.
+// inject crush maps that each miss the rule of the other, or allocate the same rule ID. Rules created or
+// removed with ceph commands also take it, so a crush map injected from an older copy cannot undo them.
+// Lock order: crushRuleMutex before crushMapMutex.
 var crushMapMutex sync.Mutex
 
 type CephStoragePoolSummary struct {
@@ -472,8 +474,8 @@ func createReplicatedPoolForApp(context *clusterd.Context, clusterInfo *ClusterI
 
 	// A pool that used a write affinity rule and no longer has writeAffinity is moved back to the rule
 	// of its spec, which may not be the one of the plain replicated path below.
-	revertWriteAffinity := poolExists && !pool.IsWriteAffinityPool() && isWriteAffinityCrushRule(pool.Name, poolDetails.CrushRule) &&
-		pool.EnableCrushUpdates != nil && *pool.EnableCrushUpdates
+	crushUpdatesEnabled := pool.EnableCrushUpdates != nil && *pool.EnableCrushUpdates
+	revertWriteAffinity := poolExists && !pool.IsWriteAffinityPool() && isWriteAffinityCrushRule(pool.Name, poolDetails.CrushRule) && crushUpdatesEnabled
 
 	if pool.IsWriteAffinityPool() {
 		if clusterSpec.IsStretchCluster() {
@@ -484,8 +486,12 @@ func createReplicatedPoolForApp(context *clusterd.Context, clusterInfo *ClusterI
 			}
 		}
 		crushRuleName = WriteAffinityCrushRuleName(clusterSpec, pool)
-		if err := createWriteAffinityCrushRule(context, clusterInfo, clusterSpec, crushRuleName, pool.PoolSpec); err != nil {
-			return errors.Wrapf(err, "failed to create write affinity crush rule %q", crushRuleName)
+		// The rule of an existing pool is only created when it can be applied, otherwise every edit of the
+		// placement would leave an unused rule behind
+		if !poolExists || poolDetails.CrushRule == crushRuleName || crushUpdatesEnabled {
+			if err := createWriteAffinityCrushRule(context, clusterInfo, clusterSpec, crushRuleName, pool.PoolSpec); err != nil {
+				return errors.Wrapf(err, "failed to create write affinity crush rule %q", crushRuleName)
+			}
 		}
 	} else if clusterSpec.IsStretchCluster() {
 		// A stretch cluster enforces using the same crush rule for all pools.
@@ -519,9 +525,20 @@ func createReplicatedPoolForApp(context *clusterd.Context, clusterInfo *ClusterI
 		} else {
 			// create a crush rule for a replicated pool, if a failure domain is specified
 			checkFailureDomain = true
+			if revertWriteAffinity {
+				// updatePoolCrushRuleLocked() cannot tell a write affinity rule from a plain rule, so the pool
+				// is moved below to the rule that updatePoolCrushRuleLocked() expects for the spec
+				crushRuleName = replicatedCrushRuleName(pool)
+				if crushRuleName == pool.Name {
+					// The rule may have been created for an older spec of the pool, recreate it
+					if err := deleteCrushRule(context, clusterInfo, crushRuleName); err != nil {
+						return errors.Wrapf(err, "failed to delete stale crush rule %q", crushRuleName)
+					}
+				}
+			}
 			// Only create the initial crush rule if the pool doesn't exist yet.
 			// Any updates to the crush rule will be applied later in the reconcile.
-			if !poolExists {
+			if !poolExists || revertWriteAffinity {
 				if err := createReplicationCrushRule(context, clusterInfo, clusterSpec, crushRuleName, pool); err != nil {
 					return errors.Wrapf(err, "failed to create replicated crush rule %q", crushRuleName)
 				}
@@ -543,6 +560,10 @@ func createReplicatedPoolForApp(context *clusterd.Context, clusterInfo *ClusterI
 	} else {
 		// If the pool is type replicated, set the size for the pool if it changed
 		if !clusterSpec.IsStretchCluster() && pool.IsReplicated() && poolDetails.Size != pool.Replicated.Size {
+			// A write affinity rule places a fixed number of replicas, the PGs would be undersized
+			if !crushUpdatesEnabled && poolDetails.CrushRule != crushRuleName && isWriteAffinityCrushRule(pool.Name, poolDetails.CrushRule) {
+				return errors.Errorf("cannot change the size of pool %q from %d to %d while it keeps the write affinity crush rule %q. set enableCrushUpdates to apply the change", pool.Name, poolDetails.Size, pool.Replicated.Size, poolDetails.CrushRule)
+			}
 			logger.Infof("pool size is changed from %d to %d", poolDetails.Size, pool.Replicated.Size)
 			if err := SetPoolReplicatedSizeProperty(context, clusterInfo, pool.Name, strconv.FormatUint(uint64(pool.Replicated.Size), 10)); err != nil {
 				return errors.Wrapf(err, "failed to set size property to replicated pool %q to %d", pool.Name, pool.Replicated.Size)
@@ -550,8 +571,7 @@ func createReplicatedPoolForApp(context *clusterd.Context, clusterInfo *ClusterI
 		}
 	}
 
-	// The plain replicated path moves pools off a write affinity rule in updatePoolCrushRuleLocked()
-	if poolExists && !checkFailureDomain && (pool.IsWriteAffinityPool() || revertWriteAffinity) {
+	if poolExists && (pool.IsWriteAffinityPool() || revertWriteAffinity) {
 		if err := updateWriteAffinityCrushRule(context, clusterInfo, pool, poolDetails.CrushRule, crushRuleName); err != nil {
 			return err
 		}
@@ -654,11 +674,7 @@ func updatePoolCrushRuleLocked(context *clusterd.Context, clusterInfo *ClusterIn
 		return nil
 	}
 
-	// Use a crush rule name that is unique to the desired failure domain
-	crushRuleName := fmt.Sprintf("%s_%s", pool.Name, pool.FailureDomain)
-	if pool.DeviceClass != "" {
-		crushRuleName = fmt.Sprintf("%s_%s_%s", pool.Name, pool.FailureDomain, pool.DeviceClass)
-	}
+	crushRuleName := replicatedCrushRuleName(pool)
 	if crushRuleName == details.CrushRule {
 		logger.Debugf("crush rule already set to %q for pool %q (failureDomain=%s, deviceClass=%s)", crushRuleName, pool.Name, currentFailureDomain, currentDeviceClass)
 		return nil
@@ -689,6 +705,18 @@ func updatePoolCrushRuleLocked(context *clusterd.Context, clusterInfo *ClusterIn
 
 	logger.Infof("Successfully updated pool %q failure domain to %q", pool.Name, pool.FailureDomain)
 	return nil
+}
+
+// replicatedCrushRuleName returns the name of the rule of a plain replicated pool after its failure domain or
+// device class was updated, which is unique to the failure domain and device class
+func replicatedCrushRuleName(pool cephv1.NamedPoolSpec) string {
+	if pool.FailureDomain == "" && pool.DeviceClass == "" {
+		return pool.Name
+	}
+	if pool.DeviceClass != "" {
+		return fmt.Sprintf("%s_%s_%s", pool.Name, pool.FailureDomain, pool.DeviceClass)
+	}
+	return fmt.Sprintf("%s_%s", pool.Name, pool.FailureDomain)
 }
 
 func CleanupUnusedCrushRules(context *clusterd.Context, clusterInfo *ClusterInfo) error {
@@ -758,6 +786,9 @@ func getUsedCrushRules(context *clusterd.Context, clusterInfo *ClusterInfo) (map
 }
 
 func deleteCrushRule(context *clusterd.Context, clusterInfo *ClusterInfo, crushRuleName string) error {
+	crushMapMutex.Lock()
+	defer crushMapMutex.Unlock()
+
 	args := []string{"osd", "crush", "rule", "rm", crushRuleName}
 	output, err := NewCephCommand(context, clusterInfo, args).Run()
 	if err != nil {
@@ -949,6 +980,9 @@ func createReplicationCrushRule(context *clusterd.Context, clusterInfo *ClusterI
 	}
 
 	args := []string{"osd", "crush", "rule", "create-replicated", ruleName, crushRoot, failureDomain}
+
+	crushMapMutex.Lock()
+	defer crushMapMutex.Unlock()
 
 	var deviceClass string
 	if pool.DeviceClass != "" {

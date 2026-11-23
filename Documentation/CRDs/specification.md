@@ -17102,7 +17102,7 @@ More info: <a href="https://kubernetes.io/docs/concepts/storage/volume-attribute
 <p>FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
 must be of the type set in the pool failureDomain, for example the names of the zones. The first
 entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
-next entry of the list.</p>
+next entry of the list. Entries must be unique.</p>
 </td>
 </tr>
 </tbody>

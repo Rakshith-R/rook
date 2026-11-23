@@ -25,8 +25,8 @@ import (
 	cephv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
 	"github.com/rook/rook/pkg/clusterd"
 	cephclient "github.com/rook/rook/pkg/daemon/ceph/client"
+	"github.com/rook/rook/pkg/operator/ceph/cluster/mon"
 	"github.com/rook/rook/pkg/util/log"
-	corev1 "k8s.io/api/core/v1"
 )
 
 // validatePool validates the pool arguments
@@ -282,8 +282,12 @@ func validateWriteAffinity(clusterSpec *cephv1.ClusterSpec, p *cephv1.PoolSpec, 
 		if !underRoot[bucket.ID] {
 			return errors.Errorf("crush bucket %q is not under the crush root %q", name, crushRoot)
 		}
-		if p.DeviceClass != "" && !hasDeviceClass(crush, crushSubtree(crush, name), p.DeviceClass) {
+		subtree := crushSubtree(crush, name)
+		if p.DeviceClass != "" && !hasDeviceClass(crush, subtree, p.DeviceClass) {
 			return errors.Errorf("crush bucket %q has no OSDs of device class %q", name, p.DeviceClass)
+		}
+		if count := countCrushBuckets(crush, subtree, subFailureDomain); count < int(replicas) {
+			return errors.Errorf("crush bucket %q has %d buckets of type %q, at least %d are required", name, count, subFailureDomain, replicas)
 		}
 	}
 	return nil
@@ -296,10 +300,8 @@ func validateStretchWriteAffinity(clusterSpec *cephv1.ClusterSpec, p *cephv1.Poo
 		return errors.New("deviceClass is not supported in a stretch cluster")
 	}
 
-	stretchFailureDomain := corev1.LabelZoneFailureDomainStable
-	if clusterSpec.Mon.StretchCluster.FailureDomainLabel != "" {
-		stretchFailureDomain = clusterSpec.Mon.StretchCluster.FailureDomainLabel
-	}
+	// the failure domain of the mons is the type of the stretch zones in the crush map
+	stretchFailureDomain := mon.GetFailureDomainLabel(*clusterSpec)
 	if _, after, found := strings.Cut(stretchFailureDomain, "/"); found {
 		stretchFailureDomain = after
 	}
@@ -361,6 +363,25 @@ func crushSubtree(crush cephclient.CrushMap, name string) map[int]bool {
 		}
 	}
 	return subtree
+}
+
+// countCrushBuckets returns the number of buckets of the given type in the subtree. A type of "osd" counts devices.
+func countCrushBuckets(crush cephclient.CrushMap, subtree map[int]bool, typeName string) int {
+	count := 0
+	if typeName == "osd" {
+		for _, device := range crush.Devices {
+			if subtree[device.ID] {
+				count++
+			}
+		}
+		return count
+	}
+	for _, bucket := range crush.Buckets {
+		if subtree[bucket.ID] && bucket.TypeName == typeName {
+			count++
+		}
+	}
+	return count
 }
 
 func hasDeviceClass(crush cephclient.CrushMap, subtree map[int]bool, deviceClass string) bool {

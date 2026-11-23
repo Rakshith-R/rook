@@ -260,13 +260,15 @@ and the built-in pools `.mgr`, `.nfs`, and `.rgw.root`.
 !!! note
     The rule is only applied to an existing pool when `enableCrushUpdates` is `true`. Otherwise
     the pool keeps its current rule and Rook emits a warning event `CrushRuleNotUpdated` and a
-    warning in the operator log.
+    warning in the operator log. Changing `size` is rejected while the pool keeps an older write
+    affinity rule.
 
 Enabling `writeAffinity` on an existing pool moves data to satisfy the new rule. Reordering the
 `failureDomains` list only changes which failure domain holds the primaries and does not move
 data. When the rule is switched, Rook removes the old `_wa_` rule. Removing `writeAffinity` with
 `enableCrushUpdates` set returns the pool to the CRUSH rule of its spec. The first entry of
-`failureDomains` is reported in the CephBlockPool status:
+`failureDomains` is reported in the CephBlockPool status once the pool uses a rule that places
+the primaries in it:
 
 ```yaml
 status:
@@ -313,7 +315,7 @@ Ceph stretch mode is enabled before creating the pool.
 then you will have two replicas per `datacenter` where each replica ends up on a different host. This gives you a total of four replicas and for this, the `size` must be set to 4. The default value is 1.
     * `subFailureDomain`: Name of the CRUSH bucket representing a sub-failure domain. In a stretched configuration this option represent the leaf CRUSH bucket type where replicas will be placed. Imagine the cluster is stretched across two datacenters, you can then have two copies per `datacenter` and each copy on a different CRUSH bucket. The default is `host`.
     * `writeAffinity`: Places the replicas of a replicated pool in an explicit, ordered list of CRUSH failure domains. The primary OSD of every PG is chosen from the first entry of the list. Only supported for `CephBlockPool`, cannot be combined with `hybridStorage`, and is rejected for the built-in pools `.mgr`, `.nfs`, and `.rgw.root`. See [write affinity](#write-affinity) for details.
-        * `failureDomains`: Ordered list of 2 to 16 unique CRUSH bucket names of the type set in `failureDomain` (required). Each name must be 1 to 63 characters and is normalized by replacing `.` with `-`. Every bucket must exist below the `crushRoot` (or the default root), and when `deviceClass` is set, every bucket must contain OSDs of that class. `replicated.size` must equal the number of entries multiplied by `replicasPerFailureDomain` (default `1`).
+        * `failureDomains`: Ordered list of 2 to 16 unique CRUSH bucket names of the type set in `failureDomain` (required). Each name must be 1 to 63 characters and is normalized by replacing `.` with `-`. Every bucket must exist below the `crushRoot` (or the default root), must contain at least `replicasPerFailureDomain` buckets of the `subFailureDomain` type, and when `deviceClass` is set, must contain OSDs of that class. `replicated.size` must equal the number of entries multiplied by `replicasPerFailureDomain` (default `1`).
 * `erasureCoded`: Settings for an erasure-coded pool. If specified, `replicated` settings cannot be specified. See below for more details on [erasure coding](#erasure-coding).
     * `dataChunks`: Number of chunks to divide the original object into
     * `codingChunks`: Number of coding chunks to generate

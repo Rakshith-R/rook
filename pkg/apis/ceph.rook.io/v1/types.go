@@ -1486,12 +1486,12 @@ type WriteAffinitySpec struct {
 	// FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
 	// must be of the type set in the pool failureDomain, for example the names of the zones. The first
 	// entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
-	// next entry of the list.
+	// next entry of the list. Entries must be unique.
 	// +kubebuilder:validation:MinItems=2
 	// +kubebuilder:validation:MaxItems=16
 	// +kubebuilder:validation:items:MinLength=1
 	// +kubebuilder:validation:items:MaxLength=63
-	// +listType=set
+	// +listType=atomic
 	FailureDomains []string `json:"failureDomains"`
 }
 

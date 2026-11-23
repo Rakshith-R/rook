@@ -93,21 +93,23 @@ type WriteAffinitySpec struct {
     // FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
     // must be of the type set in the pool failureDomain, for example the names of the zones. The first
     // entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
-    // next entry of the list.
+    // next entry of the list. Entries must be unique.
     // +kubebuilder:validation:MinItems=2
     // +kubebuilder:validation:MaxItems=16
     // +kubebuilder:validation:items:MinLength=1
     // +kubebuilder:validation:items:MaxLength=63
-    // +listType=set
+    // +listType=atomic
     FailureDomains []string `json:"failureDomains"`
 }
 ```
 
-Uniqueness is enforced with `+listType=set`, not a CEL `exists_one` rule. The `ReplicatedSpec` is embedded in
-the unbounded `CephFilesystem.dataPools` list, and the nested `all(x, self.exists_one(y, ...))` comparison
-exceeds the apiserver's CEL cost budget once the list is treated as unbounded. Set semantics reject duplicates
-at no CEL cost. `MaxLength=63` bounds every entry, matching the topology label value limit the bucket names
-come from and bounding the generated rule text.
+The list is `atomic` because its order is semantic: with `listType=set`, server-side apply merges entries by
+value and may keep the old order when the same zones are applied in a new order, so the primary zone would not
+change. Uniqueness is enforced in operator validation on the normalized names, not with a CEL `exists_one`
+rule. The `ReplicatedSpec` is embedded in the unbounded `CephFilesystem.dataPools` list, and the nested
+`all(x, self.exists_one(y, ...))` comparison exceeds the apiserver's CEL cost budget once the list is treated
+as unbounded. `MaxLength=63` bounds every entry, matching the topology label value limit the bucket names come
+from and bounding the generated rule text.
 
 Semantics:
 
@@ -273,19 +275,26 @@ name matches exactly the `<pool>_wa_<8 hex>` pattern for that same pool, so an u
 storage and two-step branches:
 
 1. In a stretch cluster, wait for stretch mode to be enabled (see below).
-2. Compute the rule name and create the rule if it does not exist.
+2. Compute the rule name and create the rule if it does not exist. For an existing pool on another rule, the
+   rule is only created when `enableCrushUpdates` is `true`, so edits that cannot be applied leave no unused
+   rules behind.
 3. New pool: create it with that rule.
 4. Existing pool using another rule: if `enableCrushUpdates` is `true`, run
    `ceph osd pool set <pool> crush_rule <rule>`, then delete the old write affinity rule if it matches the
    pattern above; otherwise keep the current rule and report the mismatch (see Status). This matches how
-   failure domain and device class changes are gated today.
+   failure domain and device class changes are gated today. A size change is rejected while the pool keeps
+   an old write affinity rule, because that rule places a fixed number of replicas and the PGs would be
+   undersized.
 5. Skip `updatePoolCrushRuleLocked()`. It derives the failure domain from the first two steps of the rule and
    would read `host` from a write affinity rule, then replace it with a plain `create-replicated` rule.
 
 **Removing `writeAffinity`** is gated by `enableCrushUpdates` and takes the path of the spec that remains:
 
-- Plain replicated (`replicasPerFailureDomain` at most 1): handled by `updatePoolCrushRuleLocked()`, which
-  sets the standard rule and deletes the previous write affinity rule.
+- Plain replicated (`replicasPerFailureDomain` at most 1): `updatePoolCrushRuleLocked()` cannot be used, since
+  it returns early without `failureDomain` and `deviceClass` and can read a write affinity rule as a matching
+  plain rule. Rook creates the rule that `updatePoolCrushRuleLocked()` expects for the spec (`<pool>`,
+  recreated, without `failureDomain` and `deviceClass`; `<pool>_<failureDomain>[_<deviceClass>]` otherwise),
+  sets it, and deletes the previous write affinity rule.
 - Stretch cluster: the desired rule is `default_stretch_cluster_rule`; the pool is moved to it and the old
   write affinity rule is deleted.
 - `replicasPerFailureDomain > 1` and hybrid storage: the target rule is the `<pool>` rule, which may already
@@ -295,8 +304,10 @@ storage and two-step branches:
 Without `enableCrushUpdates`, none of these moves happen and the mismatch is reported instead.
 
 **Status.** `status.info` gains `primaryFailureDomain` (the first entry) next to the existing `failureDomain`
-key, so tools that build the StorageClass can map pools to zones without parsing the spec. The status message
-is unchanged. When `enableCrushUpdates` is off and the pool's rule differs from the desired one, the operator
+key, so tools that build the StorageClass can map pools to zones without parsing the spec. It is only set while
+the first take step of the pool's active rule is the first entry, so a change that is not applied yet is not
+advertised. The status message is unchanged. When `enableCrushUpdates` is off and the pool's rule differs from
+the desired one, or the pool keeps a write affinity rule after `writeAffinity` was removed, the operator
 logs a warning and records a `Warning` event `CrushRuleNotUpdated` on the `CephBlockPool` explaining that the
 change moves data and needs `enableCrushUpdates`. There was no existing status mechanism for this kind of
 mismatch; the event is the least invasive way to surface it.
@@ -389,8 +400,8 @@ Further results for the proposed rule:
 
 The CRD rules were evaluated with the Kubernetes CEL validator (`k8s.io/apiextensions-apiserver` v0.37.2)
 against a schema equivalent to the generated one: valid specs pass; a size mismatch and the combination with
-`hybridStorage` are rejected. Duplicate entries are rejected by `listType=set`, which was chosen over the CEL
-uniqueness rule because the latter exceeds the cost budget for the embedded, unbounded `dataPools` list.
+`hybridStorage` are rejected. Duplicate entries are rejected by operator validation, because the CEL uniqueness
+rule exceeds the cost budget for the embedded, unbounded `dataPools` list.
 
 ## Alternatives considered
 
@@ -399,7 +410,8 @@ uniqueness rule because the latter exceeds the cost budget for the embedded, unb
 | Only name the primary zone and take the root for the rest | Places two replicas in the primary zone for 67% of PGs in the test above. |
 | Only name the primary zone and let Rook enumerate the other zones | The failover order becomes implicit and the rule changes whenever a zone appears in the CRUSH map. Can be added later as a shorthand that expands to the explicit list. |
 | List of objects (`- name: us-east-1a`) | Easier to extend per zone, but nothing per-zone is needed now: replica count, sub failure domain and device class are uniform and already have fields. The `writeAffinity` struct is the extension point. |
-| CEL `exists_one` uniqueness rule | Exceeds the apiserver CEL cost budget once the list is part of the unbounded `CephFilesystem.dataPools` list. `listType=set` rejects duplicates without CEL. |
+| CEL `exists_one` uniqueness rule | Exceeds the apiserver CEL cost budget once the list is part of the unbounded `CephFilesystem.dataPools` list. Operator validation rejects duplicates instead. |
+| `listType=set` for uniqueness | Server-side apply treats the order of a set as non-semantic, but the order selects the primary zone. |
 | One CR producing one pool per zone | Breaks the one CR to one pool model that status, pool ID, mirroring, deletion and `CephBlockPoolRadosNamespace` rely on. |
 | OSD `primary-affinity` | Set per OSD for all pools, so it cannot give each pool a different primary zone. |
 | `pg-upmap-primary` managed by Rook | Per-PG state to reconcile on every PG split or merge, competes with the balancer, and raises the minimum client compatibility level to Reef. |

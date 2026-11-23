@@ -321,6 +321,9 @@ func TestValidateWriteAffinity(t *testing.T) {
 	deviceClassSpec := writeAffinityPoolSpec("zone", 3, 0, "a", "b", "c")
 	deviceClassSpec.DeviceClass = "ssd"
 
+	rootSubFailureDomainSpec := writeAffinityPoolSpec("zone", 3, 0, "a", "b", "c")
+	rootSubFailureDomainSpec.Replicated.SubFailureDomain = "root"
+
 	tests := []struct {
 		name        string
 		spec        cephv1.PoolSpec
@@ -373,6 +376,16 @@ func TestValidateWriteAffinity(t *testing.T) {
 			name:        "device class missing from a failure domain",
 			spec:        deviceClassSpec,
 			expectedErr: `crush bucket "c" has no OSDs of device class "ssd"`,
+		},
+		{
+			name:        "subFailureDomain not below the failure domains",
+			spec:        rootSubFailureDomainSpec,
+			expectedErr: `crush bucket "a" has 0 buckets of type "root", at least 1 are required`,
+		},
+		{
+			name:        "not enough subFailureDomain buckets for replicasPerFailureDomain",
+			spec:        writeAffinityPoolSpec("zone", 24, 8, "a", "b", "c"),
+			expectedErr: `buckets of type "host", at least 8 are required`,
 		},
 		{
 			name: "failure domain name is normalized",
@@ -481,6 +494,15 @@ func TestValidateWriteAffinityStretchCluster(t *testing.T) {
 	t.Run("region failure domain label accepted with region failureDomain", func(t *testing.T) {
 		spec := writeAffinityPoolSpec("region", 4, 2, "a", "b")
 		assert.NoError(t, validateStretchWriteAffinity(newStretchClusterSpec("topology.kubernetes.io/region"), &spec))
+	})
+
+	t.Run("mon failure domain label is used without a stretch cluster label", func(t *testing.T) {
+		clusterSpec := newStretchClusterSpec("")
+		clusterSpec.Mon.FailureDomainLabel = "topology.kubernetes.io/region"
+		spec := writeAffinityPoolSpec("region", 4, 2, "a", "b")
+		assert.NoError(t, validateStretchWriteAffinity(clusterSpec, &spec))
+		spec.FailureDomain = "zone"
+		assert.ErrorContains(t, validateStretchWriteAffinity(clusterSpec, &spec), `failureDomain must be the stretch cluster failure domain "region"`)
 	})
 }
 

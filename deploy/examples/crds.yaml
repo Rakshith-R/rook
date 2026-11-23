@@ -643,7 +643,7 @@ spec:
                             FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
                             must be of the type set in the pool failureDomain, for example the names of the zones. The first
                             entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
-                            next entry of the list.
+                            next entry of the list. Entries must be unique.
                           items:
                             maxLength: 63
                             minLength: 1
@@ -651,7 +651,7 @@ spec:
                           maxItems: 16
                           minItems: 2
                           type: array
-                          x-kubernetes-list-type: set
+                          x-kubernetes-list-type: atomic
                       required:
                         - failureDomains
                       type: object
@@ -8278,7 +8278,7 @@ spec:
                                   FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
                                   must be of the type set in the pool failureDomain, for example the names of the zones. The first
                                   entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
-                                  next entry of the list.
+                                  next entry of the list. Entries must be unique.
                                 items:
                                   maxLength: 63
                                   minLength: 1
@@ -8286,7 +8286,7 @@ spec:
                                 maxItems: 16
                                 minItems: 2
                                 type: array
-                                x-kubernetes-list-type: set
+                                x-kubernetes-list-type: atomic
                             required:
                               - failureDomains
                             type: object
@@ -8534,7 +8534,7 @@ spec:
                                 FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
                                 must be of the type set in the pool failureDomain, for example the names of the zones. The first
                                 entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
-                                next entry of the list.
+                                next entry of the list. Entries must be unique.
                               items:
                                 maxLength: 63
                                 minLength: 1
@@ -8542,7 +8542,7 @@ spec:
                               maxItems: 16
                               minItems: 2
                               type: array
-                              x-kubernetes-list-type: set
+                              x-kubernetes-list-type: atomic
                           required:
                             - failureDomains
                           type: object
@@ -13872,7 +13872,7 @@ spec:
                                 FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
                                 must be of the type set in the pool failureDomain, for example the names of the zones. The first
                                 entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
-                                next entry of the list.
+                                next entry of the list. Entries must be unique.
                               items:
                                 maxLength: 63
                                 minLength: 1
@@ -13880,7 +13880,7 @@ spec:
                               maxItems: 16
                               minItems: 2
                               type: array
-                              x-kubernetes-list-type: set
+                              x-kubernetes-list-type: atomic
                           required:
                             - failureDomains
                           type: object
@@ -15653,7 +15653,7 @@ spec:
                                 FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
                                 must be of the type set in the pool failureDomain, for example the names of the zones. The first
                                 entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
-                                next entry of the list.
+                                next entry of the list. Entries must be unique.
                               items:
                                 maxLength: 63
                                 minLength: 1
@@ -15661,7 +15661,7 @@ spec:
                               maxItems: 16
                               minItems: 2
                               type: array
-                              x-kubernetes-list-type: set
+                              x-kubernetes-list-type: atomic
                           required:
                             - failureDomains
                           type: object
@@ -16908,7 +16908,7 @@ spec:
                                 FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
                                 must be of the type set in the pool failureDomain, for example the names of the zones. The first
                                 entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
-                                next entry of the list.
+                                next entry of the list. Entries must be unique.
                               items:
                                 maxLength: 63
                                 minLength: 1
@@ -16916,7 +16916,7 @@ spec:
                               maxItems: 16
                               minItems: 2
                               type: array
-                              x-kubernetes-list-type: set
+                              x-kubernetes-list-type: atomic
                           required:
                             - failureDomains
                           type: object
@@ -17159,7 +17159,7 @@ spec:
                                 FailureDomains is the ordered list of CRUSH buckets that hold the replicas of the pool. The buckets
                                 must be of the type set in the pool failureDomain, for example the names of the zones. The first
                                 entry holds the primary OSD. If the first failure domain is unavailable, the primary moves to the
-                                next entry of the list.
+                                next entry of the list. Entries must be unique.
                               items:
                                 maxLength: 63
                                 minLength: 1
@@ -17167,7 +17167,7 @@ spec:
                               maxItems: 16
                               minItems: 2
                               type: array
-                              x-kubernetes-list-type: set
+                              x-kubernetes-list-type: atomic
                           required:
                             - failureDomains
                           type: object
