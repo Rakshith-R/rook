@@ -253,6 +253,8 @@ three attempts.
 **Validation** (`ValidatePoolSpec()` / `validateWriteAffinity()`), in addition to the CRD rules:
 
 - `failureDomain` is set and the pool is replicated.
+- The listed buckets share no OSDs, since each `take` step chooses independently and a shared OSD could hold
+  two replicas.
 - `parameters` does not set `size` or `crush_rule`, which are applied after the rule and would change its
   placement.
 - Every entry is normalized and must exist in the CRUSH map as a bucket of type `failureDomain` below the pool

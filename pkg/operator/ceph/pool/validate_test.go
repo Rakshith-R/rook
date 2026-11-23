@@ -469,6 +469,22 @@ func TestCountCrushBucketsSharedHost(t *testing.T) {
 	}
 }
 
+func TestValidateWriteAffinitySharedOSD(t *testing.T) {
+	// host h1 is linked under zone a and zone b
+	crushJSON := `{"devices": [{"id": 0}, {"id": 1}, {"id": 2}], "buckets": [
+		{"id": -1, "name": "default", "type_name": "root", "items": [{"id": -2}, {"id": -3}]},
+		{"id": -2, "name": "a", "type_name": "zone", "items": [{"id": -10}, {"id": -11}]},
+		{"id": -3, "name": "b", "type_name": "zone", "items": [{"id": -10}, {"id": -12}]},
+		{"id": -10, "name": "h1", "type_name": "host", "items": [{"id": 0}]},
+		{"id": -11, "name": "h2", "type_name": "host", "items": [{"id": 1}]},
+		{"id": -12, "name": "h3", "type_name": "host", "items": [{"id": 2}]}]}`
+	var crush cephclient.CrushMap
+	assert.NoError(t, json.Unmarshal([]byte(crushJSON), &crush))
+	spec := writeAffinityPoolSpec("zone", 2, 0, "a", "b")
+	err := validateWriteAffinity(&cephv1.ClusterSpec{}, &spec, crush)
+	assert.ErrorContains(t, err, `crush buckets "a" and "b" share OSD 0`)
+}
+
 func TestValidateWriteAffinityWithCrushDump(t *testing.T) {
 	executor := &exectest.MockExecutor{}
 	executor.MockExecuteCommandWithOutput = func(command string, args ...string) (string, error) {

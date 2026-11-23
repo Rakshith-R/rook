@@ -276,6 +276,8 @@ func validateWriteAffinity(clusterSpec *cephv1.ClusterSpec, p *cephv1.PoolSpec, 
 	underRoot := crushSubtree(crush, crushRoot)
 	parents := crushParents(crush)
 	seen := map[string]bool{}
+	// every take step of the rule chooses independently, so a device below two entries could hold two replicas
+	deviceOwner := map[int]string{}
 	for _, failureDomain := range failureDomains {
 		name := cephclient.NormalizeCrushName(failureDomain)
 		if seen[name] {
@@ -291,6 +293,15 @@ func validateWriteAffinity(clusterSpec *cephv1.ClusterSpec, p *cephv1.PoolSpec, 
 			return errors.Errorf("crush bucket %q is not under the crush root %q", name, crushRoot)
 		}
 		subtree := crushSubtree(crush, name)
+		for _, device := range crush.Devices {
+			if !subtree[device.ID] {
+				continue
+			}
+			if owner, ok := deviceOwner[device.ID]; ok {
+				return errors.Errorf("crush buckets %q and %q share OSD %d", owner, name, device.ID)
+			}
+			deviceOwner[device.ID] = name
+		}
 		if p.DeviceClass != "" && !hasDeviceClass(crush, subtree, p.DeviceClass) {
 			return errors.Errorf("crush bucket %q has no OSDs of device class %q", name, p.DeviceClass)
 		}
